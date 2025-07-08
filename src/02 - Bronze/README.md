@@ -102,6 +102,17 @@ def load_to_bronze_unity_merge(df, table_name):
   - Schema simples (1 campo principal)
 - **Tipo**: 🎮 Reference Card (dados estáticos)
 
+### 💰 `Card_Prices.ipynb`
+- **Fonte**: Dados de preços da staging (Scryfall API)
+- **Chave**: `name` (nome da carta)
+- **Características**:
+  - Dados de preços em tempo real (USD, EUR, TIX)
+  - Merge incremental por nome da carta
+  - Particionamento por `ingestion_timestamp`
+  - Dependência: Requer dados de cards já processados
+  - Fonte de dados: Scryfall API (diferente da MTG API)
+- **Tipo**: 💰 Market Data (dados dinâmicos)
+
 ## ⚙️ Configurações Necessárias
 
 ### 🔐 Segredos do Databricks
@@ -293,6 +304,15 @@ def show_sample_data(table_name):
 - **Compatibilidade**: Suporte a schemas antigos
 - **Tipo**: 🏷️ Reference Card (estáticos)
 
+### **Dados de Preços (Card Prices)**
+- **Filtro**: Baseado em cards existentes (sem filtro temporal direto)
+- **Merge**: Incremental por nome da carta
+- **Particionamento**: Por ano/mês baseado em `ingestion_timestamp`
+- **Frequência**: Atualização frequente (preços dinâmicos)
+- **Fonte**: Scryfall API (diferente da MTG API)
+- **Dependência**: Requer dados de cards já processados
+- **Tipo**: 💰 Market Data (dados dinâmicos)
+
 ### 🎴 **Flavor Text dos Dados**
 *"Como um bibliotecário organizando grimórios antigos e novos, a camada Bronze separa conhecimento temporal de sabedoria eterna, cada um com sua própria estratégia de preservação."*
 
@@ -397,11 +417,16 @@ df_with_partition = df.withColumn("partition_year",
        .withColumn("partition_month", 
                   month(col("ingestion_timestamp")))
 
+# Dados de Preços (Card Prices) - Particionamento por ingestion_timestamp
+df_with_partition = df.withColumn("partition_year", 
+                  year(col("ingestion_timestamp"))) \
+       .withColumn("partition_month", 
+                  month(col("ingestion_timestamp")))
+
 # Aplicação do particionamento
 df_with_partition.write.format("delta") \
        .partitionBy("partition_year", "partition_month") \
        .save(delta_path)
-```
 
 #### **Campos de Particionamento**
 - **`partition_year`**: Ano extraído da data de referência
@@ -409,6 +434,7 @@ df_with_partition.write.format("delta") \
 - **Estratégia**: 
   - **Dados temporais**: Prioriza `releaseDate`, fallback para `ingestion_timestamp`
   - **Dados de referência**: Usa `ingestion_timestamp` (data de ingestão)
+  - **Dados de preços**: Usa `ingestion_timestamp` (data de ingestão)
 
 ## 🚀 Como Executar
 
@@ -421,6 +447,7 @@ Types.ipynb
 SuperTypes.ipynb
 SubTypes.ipynb
 Formats.ipynb
+Card_Prices.ipynb
 ```
 
 ### Execução Sequencial
@@ -432,6 +459,7 @@ SubTypes.ipynb
 Formats.ipynb
 Sets.ipynb
 Cards.ipynb
+Card_Prices.ipynb  # Deve ser executado após Cards.ipynb
 ```
 
 ## 📋 Checklist de Execução
@@ -548,6 +576,7 @@ print(f"Merge executado com sucesso")
 ```
 🃏 Cards (Temporais)    📦 Sets (Temporais)    🏷️ Types (Referência)
 ⭐ SuperTypes (Referência)    🔖 SubTypes (Referência)    🎮 Formats (Referência)
+💰 Card Prices (Market Data)
 ```
 
 ### 🔄 Operações de Merge
