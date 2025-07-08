@@ -360,6 +360,93 @@ print(f"Arquivo {file_name} criado com sucesso")
 print(f"Erro na requisição: {error_message}")
 ```
 
+## 🔍 Data Quality
+
+### 🎯 Validações Implementadas
+
+#### **1. Limpeza de Dados**
+Cada tabela possui função específica de limpeza:
+
+```python
+# Cards - Conversão de tipos e arrays JSON
+def clean_cards_data(data):
+    # Campos simples → String
+    # Arrays → JSON string
+    # Tipos específicos (cmc → Float, multiverseid → Integer)
+
+# Sets - Explosão de campo booster
+def clean_sets_data(data):
+    # Campo booster complexo → múltiplas colunas
+    # booster_0, booster_1, booster_2, etc.
+
+# Types/SuperTypes/SubTypes/Formats - Estruturação simples
+def clean_types_data(data):
+    # Lista de strings → Lista de dicionários
+    # {"type_name": "Creature"}
+```
+
+#### **2. Schema Validation**
+Schemas explícitos para cada tabela:
+
+```python
+# Cards - 25 campos com tipos específicos
+schema_fields = [
+    StructField("name", StringType(), True),
+    StructField("cmc", FloatType(), True),
+    StructField("multiverseid", IntegerType(), True),
+    # ... outros campos
+]
+
+# Sets - 13 campos + 20 colunas booster
+# Types/SuperTypes/SubTypes/Formats - 1 campo cada
+```
+
+#### **3. Controle de Qualidade**
+- ✅ **Verificação de dados vazios**: `if not data: return None`
+- ✅ **Controle de duplicatas**: Verificação de arquivos existentes
+- ✅ **Tratamento de erros**: Try/catch em conversões
+- ✅ **Logs estruturados**: Contagem e status de processamento
+
+### 📊 Métricas Coletadas
+
+#### **Logs de Processamento**
+```python
+print(f"Dados obtidos: {len(table_data)} registros")
+print(f"Dados limpos: {len(cleaned_data)} registros")
+print(f"Registros processados: {count}")
+print(f"Arquivo criado: {file_name}")
+```
+
+#### **Verificações de Integridade**
+```python
+# Evita reprocessamento
+if len(existing_files) > 0:
+    print(f"Arquivo já existe - pulando")
+
+# Validação de dados
+if not data:
+    print(f"Nenhum dado para salvar")
+```
+
+### 🛡️ Tratamento de Erros
+
+#### **API Errors**
+- **Rate Limiting**: HTTP 429 → Backoff exponencial
+- **Timeouts**: 30s → Retry automático
+- **JSON Decode**: Tratamento de respostas inválidas
+
+#### **Data Errors**
+- **Campos faltantes**: Conversão para `None`
+- **Tipos inválidos**: Conversão segura para string
+- **Arrays complexos**: Conversão para JSON string
+
+### 🎯 Boas Práticas
+
+- ✅ **Schema explícito**: Validação automática do Spark
+- ✅ **Idempotência**: Execução múltipla sem duplicação
+- ✅ **Logs detalhados**: Rastreabilidade completa
+- ✅ **Preservação de dados**: Sem transformações complexas
+
 ## 🎴 Galeria Visual - Magic: The Gathering
 
 ### 🃏 Tipos de Cartas
