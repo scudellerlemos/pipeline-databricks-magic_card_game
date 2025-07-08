@@ -12,7 +12,7 @@
 
 Esta pasta contém os notebooks responsáveis pela **ingestão de dados brutos** da API do Magic: The Gathering para o ambiente de staging no S3. Os dados são coletados, processados e salvos em formato Parquet para posterior processamento na camada Bronze.
 
-## 🔗 API Utilizada
+## 🔗 APIs Utilizadas
 
 ### **Magic: The Gathering API**
 - **URL Base**: `https://api.magicthegathering.io/v1`
@@ -20,8 +20,20 @@ Esta pasta contém os notebooks responsáveis pela **ingestão de dados brutos**
 - **Tipo**: REST API pública e gratuita
 - **Rate Limiting**: Sim (respeitado automaticamente)
 - **Formato de Resposta**: JSON
+- **Dados**: Cartas, sets, tipos, formatos e metadados
+
+### **Scryfall API**
+- **URL Base**: `https://api.scryfall.com`
+- **Documentação**: [https://scryfall.com/docs/api](https://scryfall.com/docs/api)
+- **Tipo**: REST API pública e gratuita
+- **Rate Limiting**: Sim (respeitado com 7 workers simultâneos)
+- **Formato de Resposta**: JSON
+- **Dados**: Preços atualizados de cartas (USD, EUR, TIX)
+- **Especialização**: Dados de mercado e preços em tempo real
 
 ### **Endpoints Utilizados**
+
+#### **Magic: The Gathering API**
 ```
 GET /cards          # Lista de cartas (com paginação)
 GET /sets           # Lista de expansões/coleções
@@ -31,14 +43,29 @@ GET /subtypes       # Sub tipos
 GET /formats        # Formatos de jogo
 ```
 
-### **Características da API**
+#### **Scryfall API**
+```
+GET /cards/named?exact={card_name}  # Preços de cartas específicas
+```
+
+### **Características das APIs**
+
+#### **Magic: The Gathering API**
 - ✅ **Gratuita**: Sem necessidade de API key
 - ✅ **Completa**: Dados de todas as cartas já lançadas
 - ✅ **Atualizada**: Mantida pela comunidade
 - ✅ **Estável**: Alta disponibilidade
 - ✅ **Bem documentada**: Exemplos e guias disponíveis
 
-### **Exemplo de Resposta**
+#### **Scryfall API**
+- ✅ **Gratuita**: Sem necessidade de API key
+- ✅ **Preços em Tempo Real**: Dados de mercado atualizados
+- ✅ **Múltiplas Moedas**: USD, EUR e TIX (MTGO)
+- ✅ **Alta Performance**: Otimizada para consultas rápidas
+- ✅ **Rate Limiting Inteligente**: Respeitado automaticamente
+- ✅ **Dados de Mercado**: Especializada em preços e valores
+
+### **Exemplo de Resposta - Magic: The Gathering API**
 ```json
 {
   "cards": [
@@ -62,6 +89,26 @@ GET /formats        # Formatos de jogo
       "id": "b7c199d8-7c42-4c0f-8c1a-0c3b0c3b0c3b"
     }
   ]
+}
+```
+
+### **Exemplo de Resposta - Scryfall API**
+```json
+{
+  "name": "Black Lotus",
+  "set": "lea",
+  "rarity": "rare",
+  "prices": {
+    "usd": "25000.00",
+    "usd_foil": "50000.00",
+    "eur": "22000.00",
+    "eur_foil": "45000.00",
+    "tix": null
+  },
+  "scryfall_uri": "https://scryfall.com/card/lea/232/black-lotus",
+  "image_uris": {
+    "normal": "https://c1.scryfall.com/file/scryfall-images/normal/front/0/9/09b7c199d8-7c42-4c0f-8c1a-0c3b0c3b0c3b.jpg"
+  }
 }
 ```
 
@@ -121,6 +168,17 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Formatos de jogo (Standard, Modern, Legacy, etc.)
   - Dados estáticos de referência
 
+### 💰 `card_prices.ipynb`
+- **API**: Scryfall API
+- **Endpoint**: `/cards/named?exact={card_name}`
+- **Tipo**: Dados de preços baseados em cards existentes
+- **Características**:
+  - Preços em USD, EUR e TIX
+  - Processamento baseado em arquivos de cards existentes
+  - Execução paralela com ThreadPoolExecutor
+  - Rate limiting respeitado (7 workers simultâneos)
+  - Dependência: Requer arquivos de cards já ingeridos
+
 ## ⚙️ Configurações Necessárias
 
 ### Segredos do Databricks
@@ -129,6 +187,7 @@ Configure os seguintes segredos no scope `mtg-pipeline`:
 ```python
 # API Configuration
 api_base_url          # URL base da API MTG
+scryfall_api_url      # URL base da Scryfall API
 batch_size           # Tamanho do lote (padrão: 100)
 max_retries          # Máximo de tentativas (padrão: 3)
 
@@ -145,6 +204,7 @@ years_back           # Anos para trás no filtro temporal (padrão: 5)
 ```
 s3://{bucket}/{prefix}/
 ├── {year}_{month}_cards.parquet
+├── {year}_{month}_card_prices.parquet
 ├── {year}_{month}_sets.parquet
 ├── {year}_{month}_types.parquet
 ├── {year}_{month}_supertypes.parquet
@@ -185,6 +245,13 @@ s3://{bucket}/{prefix}/
 - **Estático**: Raramente alterado
 - **Particionamento**: Ano/Mês atual
 - **Único**: Sem paginação
+
+### Dados de Preços (Card Prices)
+- **Dependente**: Baseado em arquivos de cards existentes
+- **Dinâmico**: Preços atualizados da Scryfall API
+- **Particionamento**: Ano/Mês correspondente aos cards
+- **Paralelo**: Processamento com ThreadPoolExecutor (7 workers)
+- **Rate Limiting**: Respeitado para não sobrecarregar a API
 
 ## 🛡️ Tratamento de Erros
 
@@ -237,6 +304,7 @@ subtypes.ipynb
 formats.ipynb
 sets.ipynb
 cards.ipynb
+card_prices.ipynb  # Deve ser executado após cards.ipynb
 ```
 
 ## ⚠️ Limitações de Demonstração
