@@ -222,7 +222,7 @@ s3://{bucket}/{prefix}/
 ### Execução Individual
 ```python
 # Executar notebook específico
-ards.ipynb
+cards.ipynb
 sets.ipynb
 types.ipynb
 # etc...
