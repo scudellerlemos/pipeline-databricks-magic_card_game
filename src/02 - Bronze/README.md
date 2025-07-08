@@ -129,15 +129,6 @@ s3_bronze_prefix      # Prefixo da camada bronze
 years_back            # Anos para trás no filtro temporal (padrão: 5)
 ```
 
-### 🎴 Configurações Temáticas do Magic
-```python
-# Magic: The Gathering Theme
-bronze_magic_theme     # Habilitar elementos temáticos
-bronze_card_types      # Tipos de cartas processados
-bronze_expansion_sets  # Expansões incluídas
-bronze_mana_colors     # Cores de mana suportadas
-```
-
 ### Estrutura Unity Catalog
 ```
 {catalog_name}/
