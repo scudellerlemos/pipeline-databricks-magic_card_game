@@ -114,7 +114,7 @@ GET /cards/named?exact={card_name}  # Preços de cartas específicas
 
 ## 🎯 Objetivo
 
-Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, garantindo:
+Ingerir dados completos e atualizados da API oficial do Magic: The Gathering e da API Scryfall, garantindo:
 - **Dados brutos**: Preservação da estrutura original da API
 - **Formato Parquet**: Otimizado para consultas analíticas
 - **Particionamento**: Por ano e mês para performance
@@ -124,6 +124,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
 ## 📁 Estrutura dos Notebooks
 
 ### 🃏 `cards.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/cards`
 - **Tipo**: Dados paginados com filtro temporal
 - **Características**: 
@@ -133,6 +134,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Tratamento de arrays JSON
 
 ### 🎴 `sets.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/sets`
 - **Tipo**: Dados paginados com filtro temporal
 - **Características**:
@@ -141,6 +143,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Metadados de lançamento
 
 ### 🏷️ `types.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/types`
 - **Tipo**: Tabela de referência (sem filtro temporal)
 - **Características**:
@@ -148,6 +151,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Dados estáticos de referência
 
 ### 🏷️ `supertypes.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/supertypes`
 - **Tipo**: Tabela de referência (sem filtro temporal)
 - **Características**:
@@ -155,6 +159,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Dados estáticos de referência
 
 ### 🏷️ `subtypes.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/subtypes`
 - **Tipo**: Tabela de referência (sem filtro temporal)
 - **Características**:
@@ -162,6 +167,7 @@ Ingerir dados completos e atualizados da API oficial do Magic: The Gathering, ga
   - Dados estáticos de referência
 
 ### 🎮 `formats.ipynb`
+- **API**: MTG API
 - **Endpoint**: `/formats`
 - **Tipo**: Tabela de referência (sem filtro temporal)
 - **Características**:
@@ -433,7 +439,7 @@ print(f"Erro na requisição: {error_message}")
 ### 🎯 Validações Implementadas
 
 #### **1. Limpeza de Dados**
-Cada tabela possui função específica de limpeza:
+Cada tabela possui uma função específica de limpeza para lidar com campos complexos e garantir a estruturação adequada dos dados para a camada Bronze:
 
 ```python
 # Cards - Conversão de tipos e arrays JSON
