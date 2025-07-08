@@ -4,7 +4,7 @@
 
 ![RED XIII - Proud Warrior](https://repositorio.sbrauble.com/arquivos/in/magic/480717/6824dbcfba786-4us35-hj5ls-0e0603650198f950cad99859423dd8cf.jpg)
 
-*"In the forge of data, raw information is refined into structured knowledge."* - Bronze Dragon, Magic: The Gathering
+*"Through the fires of transformation, raw data emerges as structured wisdom."* - RED XIII, Magic: The Gathering - FF Edition
 
 </div>
 
