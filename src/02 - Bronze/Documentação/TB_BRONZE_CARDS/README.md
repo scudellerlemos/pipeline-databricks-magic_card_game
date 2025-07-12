@@ -90,6 +90,7 @@ Tabela Bronze contendo os dados brutos de cartas do Magic: The Gathering, extra�
 | source          | NME_SOURCE      |
 | endpoint        | NME_ENDPOINT    |
 
+
 ## 8. Particionamento
 - **Colunas:** RELEASE_YEAR, RELEASE_MONTH
 - **Lógica:** Derivadas do releaseDate do set associado à carta
