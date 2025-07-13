@@ -7,6 +7,7 @@
 </div>
 <br>
 
+
 ## 📋 Visão Geral
 
 Esta pasta contém a **documentação completa** de todas as tabelas da camada Bronze do pipeline de dados do Magic: The Gathering. Cada tabela possui sua documentação detalhada com schema, regras de implementação, particionamento e linhagem de dados.

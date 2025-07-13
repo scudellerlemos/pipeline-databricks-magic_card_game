@@ -7,7 +7,7 @@
 *"Through the fires of transformation, raw data emerges as structured wisdom."* - RED XIII, Magic: The Gathering - FF Edition
 
 </div>
-
+<br>
 ## 📋 Visão Geral
 
 Esta pasta contém os notebooks responsáveis pela **camada Bronze** do pipeline de dados do Magic: The Gathering. A camada Bronze realiza o processo **EL (Extract & Load)**, carregando dados brutos da staging em dados estruturados e organizados no Unity Catalog com Delta Lake.
@@ -602,4 +602,3 @@ Para dúvidas ou problemas:
 - Revisar configurações de segredos
 - Verificar permissões Unity Catalog
 - Para detalhes técnicos: Acessar [Documentação Completa](./Documentação/README.md) 
-
