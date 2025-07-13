@@ -576,6 +576,24 @@ print(f"Merge executado com sucesso")
 ⚡ Performance Optimization    📈 Data Monitoring    🔍 Error Handling
 ```
 
+## 📚 Documentação Completa
+
+### 🎯 **Documentação Detalhada das Tabelas**
+Para informações completas sobre cada tabela da camada Bronze, incluindo schema detalhado, regras de implementação, particionamento e linhagem de dados, consulte nossa **documentação completa**:
+
+**[📖 Ver Documentação Completa da Camada Bronze](./Documentação/README.md)**
+
+### 📋 **O que você encontrará na documentação:**
+- **Schema detalhado** de todas as 7 tabelas
+- **Regras de renomeação**
+- **Estratégias de particionamento** específicas
+- **Linhagem de dados** e fluxo de processamento
+- **Regras de implementação** e filtros temporais
+- **Exemplos de uso** e casos específicos
+
+### 🎴 **Flavor Text da Documentação**
+*"Como um grimório sagrado que contém todos os segredos da magia, a documentação completa da camada Bronze revela os mistérios de cada tabela, permitindo que os magos da engenharia de dados dominem completamente o poder dos dados estruturados."*
+
 ## 📞 Suporte
 
 Para dúvidas ou problemas:
@@ -583,4 +601,5 @@ Para dúvidas ou problemas:
 - Consultar histórico do Delta Lake
 - Revisar configurações de segredos
 - Verificar permissões Unity Catalog
-- Consultar este README para referência 📚 
+- Para detalhes técnicos: Acessar [Documentação Completa](./Documentação/README.md) 
+
