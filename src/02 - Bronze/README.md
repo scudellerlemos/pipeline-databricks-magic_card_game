@@ -7,14 +7,14 @@
 *"Through the fires of transformation, raw data emerges as structured wisdom."* - RED XIII, Magic: The Gathering - FF Edition
 
 </div>
-
+<br>
 ## 📋 Visão Geral
 
-Esta pasta contém os notebooks responsáveis pela **camada Bronze** do pipeline de dados do Magic: The Gathering. A camada Bronze realiza o processo **EL (Extract & Load)**, transformando dados brutos da staging em dados estruturados e organizados no Unity Catalog com Delta Lake.
+Esta pasta contém os notebooks responsáveis pela **camada Bronze** do pipeline de dados do Magic: The Gathering. A camada Bronze realiza o processo **EL (Extract & Load)**, carregando dados brutos da staging em dados estruturados e organizados no Unity Catalog com Delta Lake.
 
 ## 🎯 Objetivo
 
-Transformar dados da camada de staging (S3/Parquet) em dados estruturados na camada Bronze (Unity Catalog/Delta), garantindo:
+Carregar dados da camada de staging (S3/Parquet) em dados estruturados na camada Bronze (Unity Catalog/Delta), garantindo:
 - **Extract**: Leitura eficiente dos dados de staging
 - **Load**: Carregamento incremental com merge inteligente
 - **Governança**: Controle através do Unity Catalog
@@ -127,15 +127,6 @@ s3_bronze_prefix      # Prefixo da camada bronze
 
 # Temporal Configuration
 years_back            # Anos para trás no filtro temporal (padrão: 5)
-```
-
-### 🎴 Configurações Temáticas do Magic
-```python
-# Magic: The Gathering Theme
-bronze_magic_theme     # Habilitar elementos temáticos
-bronze_card_types      # Tipos de cartas processados
-bronze_expansion_sets  # Expansões incluídas
-bronze_mana_colors     # Cores de mana suportadas
 ```
 
 ### Estrutura Unity Catalog
@@ -611,4 +602,3 @@ Para dúvidas ou problemas:
 - Revisar configurações de segredos
 - Verificar permissões Unity Catalog
 - Para detalhes técnicos: Acessar [Documentação Completa](./Documentação/README.md) 
-- Consultar este README para referência 📚
