@@ -2,6 +2,7 @@
 <!-- Imagem ilustrativa da tabela (adicione o link abaixo) -->
 <img src="https://i.postimg.cc/jjvN23QK/remote-image.png" alt="Imagem de documentação" width="600"/>
 </div>
+<br>
 
 # TB_BRONZE_TYPES
 
