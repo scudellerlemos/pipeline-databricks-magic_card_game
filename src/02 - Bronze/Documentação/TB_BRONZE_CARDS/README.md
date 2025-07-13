@@ -1,6 +1,6 @@
 <div align="center">
 <!-- Imagem ilustrativa da tabela (adicione o link abaixo) -->
-<img src="https://i.postimg.cc/jjvN23QK/remote-image.png" alt="Imagem ilustrativa da tabela" width="600"/>
+<img src="https://i.postimg.cc/jjvN23QK/remote-image.png" alt="Imagem de documentação" width="600"/>
 </div>
 
 # TB_BRONZE_CARDS
@@ -14,14 +14,14 @@ Tabela Bronze contendo os dados brutos de cartas do Magic: The Gathering, extra�
 
 ## 3. Origem dos Dados
 - **Fonte:** MTG API (https://api.magicthegathering.io)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/stage/cards_*.parquet
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/stage/*_cards.parquet
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
   1. MTG API (endpoint: /cards)  
   2. Ingestão para S3 (staging)  
   3. Leitura pelo notebook `src/01 - Ingestion/Dev/TB_RAW_CARDS.ipynb`  
-  4. Transformação e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_CARDS.ipynb`  
+  4. Carregamento e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_CARDS.ipynb`  
   5. Escrita na tabela Delta: TB_BRONZE_CARDS (Unity Catalog)
 
 ## 5. Schema Detalhado
@@ -53,8 +53,7 @@ Tabela Bronze contendo os dados brutos de cartas do Magic: The Gathering, extra�
 | NME_ENDPOINT     | string  | Endpoint de origem               | Sim         | Não   |                               |
 | RELEASE_YEAR     | int     | Ano de lançamento (particionamento) | Sim      | Não   | Derivado de releaseDate do set|
 | RELEASE_MONTH    | int     | Mês de lançamento (particionamento) | Sim      | Não   | Derivado de releaseDate do set|
-| DT_CREATED       | timestamp | Data de criação (opcional)      | Não         | Não   |                               |
-| DT_UPDATED       | timestamp | Data de atualização (opcional)  | Não         | Não   |                               |
+
 
 ## 6. Regras de Implementação
 - **Filtro temporal:** Apenas cartas de sets lançados nos últimos 5 anos (baseado em releaseDate dos sets)
@@ -63,7 +62,7 @@ Tabela Bronze contendo os dados brutos de cartas do Magic: The Gathering, extra�
 - **Merge incremental:** Atualização inteligente de dados
 
 ## 7. Regras de Renomeação
-| Coluna Original | Coluna GOV      |
+| Coluna Original | Coluna Bronze      |
 |-----------------|-----------------|
 | id              | ID_CARD         |
 | name            | NME_CARD        |
