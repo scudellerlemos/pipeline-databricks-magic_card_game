@@ -3,6 +3,7 @@
 <img src="https://i.postimg.cc/jjvN23QK/remote-image.png" alt="Imagem de documentação" width="600"/>
 </div>
 <br>
+
 # TB_BRONZE_SETS
 
 ## 1. Nome da Tabela e Camada

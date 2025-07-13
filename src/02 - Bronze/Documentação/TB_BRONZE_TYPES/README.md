@@ -4,6 +4,7 @@
 </div>
 <br>
 
+
 # TB_BRONZE_TYPES
 
 ## 1. Nome da Tabela e Camada
