@@ -21,7 +21,7 @@ Tabela Bronze contendo os dados brutos de subtipos de cartas do Magic: The Gathe
   1. MTG API (endpoint: /subtypes)  
   2. Ingestão para S3 (staging)  
   3. Leitura pelo notebook `src/01 - Ingestion/Dev/TB_RAW_SUBTYPES.ipynb`  
-  4. Transformação e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SUBTYPES.ipynb`  
+  4. Carregamento e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SUBTYPES.ipynb`  
   5. Escrita na tabela Delta: TB_BRONZE_SUBTYPES (Unity Catalog)
 
 ## 5. Schema Detalhado

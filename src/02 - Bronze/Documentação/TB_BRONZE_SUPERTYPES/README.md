@@ -21,7 +21,7 @@ Tabela Bronze contendo os dados brutos de supertipos de cartas do Magic: The Gat
   1. MTG API (endpoint: /supertypes)  
   2. Ingestão para S3 (staging)  
   3. Leitura pelo notebook `src/01 - Ingestion/Dev/TB_RAW_SUPERTYPES.ipynb`  
-  4. Transformação e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SUPERTYPES.ipynb`  
+  4. Carregamento e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SUPERTYPES.ipynb`  
   5. Escrita na tabela Delta: TB_BRONZE_SUPERTYPES (Unity Catalog)
 
 ## 5. Schema Detalhado

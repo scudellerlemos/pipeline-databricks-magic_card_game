@@ -21,7 +21,7 @@ Tabela Bronze contendo os dados brutos de sets (coleções) do Magic: The Gather
   1. MTG API (endpoint: /sets)  
   2. Ingestão para S3 (staging)  
   3. Leitura pelo notebook `src/01 - Ingestion/Dev/TB_RAW_SETS.ipynb`  
-  4. Transformação e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SETS.ipynb`  
+  4. Carregamento e padronização no notebook `src/02 - Bronze/Dev/TB_BRONZE_SETS.ipynb`  
   5. Escrita na tabela Delta: TB_BRONZE_SETS (Unity Catalog)
 
 ## 5. Schema Detalhado

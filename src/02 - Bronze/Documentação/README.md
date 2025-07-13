@@ -99,7 +99,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Bronze, permiti
   - Preços em USD, EUR, TIX (normal e foil)
   - Dados de mercado (high, low, market)
   - Atualização incremental de preços
-- **[📖 Ver Documentação Completa](./TB_BRONZE_CARDPRICES/README.md)**
+- **[📖 Ver Documentação Completa](./TB_BRONZE_CARD_PRICES/README.md)**
 
 ## 🔄 Categorização das Tabelas
 
