@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de supertypes de cartas d
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_SUPERTYPES (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_REF_SILVER_SUPERTYPES
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/silver/TB_REF_SILVER_SUPERTYPES
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
