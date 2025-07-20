@@ -31,7 +31,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
   - Enriquecimento de tipos, cores, categorias
   - Padronização de nomes, custos, textos
   - Deduplicação e merge incremental
-- **[📖 Ver Documentação Completa](./TB_FATO_SILVER_CARDS/README.md)**
+
 
 ### 📦 **TB_REF_SILVER_SETS** - Coleções
 - **Descrição**: Dados limpos e enriquecidos de sets (coleções) do Magic
@@ -42,7 +42,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Metadados de lançamento
   - Padronização e enriquecimento
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_SETS/README.md)**
+
 
 ### 🏷️ **TB_REF_SILVER_TYPES** - Tipos de Cartas
 - **Descrição**: Dados de referência limpos de tipos de cartas
@@ -53,7 +53,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Dados estáticos de referência
   - Padronização e merge incremental
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_TYPES/README.md)**
+
 
 ### ⭐ **TB_REF_SILVER_SUPERTYPES** - Supertipos de Cartas
 - **Descrição**: Dados de referência limpos de supertipos de cartas
@@ -64,7 +64,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Dados estáticos de referência
   - Padronização e merge incremental
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_SUPERTYPES/README.md)**
+
 
 ### 🔖 **TB_REF_SILVER_SUBTYPES** - Subtipos de Cartas
 - **Descrição**: Dados de referência limpos de subtipos de cartas
@@ -75,7 +75,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Dados estáticos de referência
   - Padronização e merge incremental
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_SUBTYPES/README.md)**
+
 
 ### 🎮 **TB_REF_SILVER_FORMATS** - Formatos de Jogo
 - **Descrição**: Dados de referência limpos de formatos de jogo
@@ -86,7 +86,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Dados estáticos de referência
   - Padronização e merge incremental
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_FORMATS/README.md)**
+
 
 ### 💰 **TB_FATO_SILVER_CARDPRICES** - Preços de Cartas
 - **Descrição**: Dados limpos e enriquecidos de preços de cartas
@@ -97,7 +97,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Preços em USD, EUR, TIX (normal e foil)
   - Atualização incremental de preços
-- **[📖 Ver Documentação Completa](./TB_FATO_SILVER_CARDPRICES/README.md)**
+
 
 ## 🔄 Categorização das Tabelas
 
