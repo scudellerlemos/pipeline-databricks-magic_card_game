@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de subtipos de cartas do 
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_SUBTYPES (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_REF_SILVER_SUBTYPES
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/silver/TB_REF_SILVER_SUBTYPES
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
