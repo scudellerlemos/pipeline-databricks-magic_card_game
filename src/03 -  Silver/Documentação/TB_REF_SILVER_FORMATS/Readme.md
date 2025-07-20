@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de formatos de jogo do Ma
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_FORMATS (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_REF_SILVER_FORMATS
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/silver/TB_REF_SILVER_FORMATS
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
