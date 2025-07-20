@@ -21,7 +21,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 
 ## 🃏 Tabelas Documentadas
 
-### 🎴 **TB_REF_SILVER_CARDS** - Cartas do Magic
+### 🎴 **TB_FATO_SILVER_CARDS** - Cartas do Magic
 - **Descrição**: Dados limpos e enriquecidos de cartas do Magic: The Gathering
 - **Chave Primária**: `ID_CARD`
 - **Particionamento**: `ANO_PART`, `MES_PART`
@@ -31,7 +31,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
   - Enriquecimento de tipos, cores, categorias
   - Padronização de nomes, custos, textos
   - Deduplicação e merge incremental
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_CARDS/README.md)**
+- **[📖 Ver Documentação Completa](./TB_FATO_SILVER_CARDS/README.md)**
 
 ### 📦 **TB_REF_SILVER_SETS** - Coleções
 - **Descrição**: Dados limpos e enriquecidos de sets (coleções) do Magic
@@ -88,7 +88,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
   - Padronização e merge incremental
 - **[📖 Ver Documentação Completa](./TB_REF_SILVER_FORMATS/README.md)**
 
-### 💰 **TB_REF_SILVER_CARD_PRICES** - Preços de Cartas
+### 💰 **TB_FATO_SILVER_CARDPRICES** - Preços de Cartas
 - **Descrição**: Dados limpos e enriquecidos de preços de cartas
 - **Chave Primária**: `NME_CARD`
 - **Particionamento**: `RELEASE_YEAR`, `RELEASE_MONTH`
@@ -97,16 +97,16 @@ Fornecer documentação executiva e técnica de todas as tabelas Silver, permiti
 - **Características**:
   - Preços em USD, EUR, TIX (normal e foil)
   - Atualização incremental de preços
-- **[📖 Ver Documentação Completa](./TB_REF_SILVER_CARD_PRICES/README.md)**
+- **[📖 Ver Documentação Completa](./TB_FATO_SILVER_CARDPRICES/README.md)**
 
 ## 🔄 Categorização das Tabelas
 
 ### 📊 **Tabelas de Dados Principais** (Com Filtro Temporal)
 | Tabela | Tipo de Dado | Particionamento | Filtro |
 |--------|-------------|-----------------|---------|
-| TB_REF_SILVER_CARDS | Cartas | ANO_PART/MES_PART | 5 anos |
+| TB_FATO_SILVER_CARDS | Cartas | ANO_PART/MES_PART | 5 anos |
 | TB_REF_SILVER_SETS | Coleções | RELEASE_YEAR/MONTH | 5 anos |
-| TB_REF_SILVER_CARD_PRICES | Preços | RELEASE_YEAR/MONTH | 5 anos |
+| TB_FATO_SILVER_CARDPRICES | Preços | RELEASE_YEAR/MONTH | 5 anos |
 
 ### 🏷️ **Tabelas de Referência** (Sem Filtro Temporal)
 | Tabela | Tipo de Dado | Particionamento | Característica |
