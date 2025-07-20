@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de tipos de cartas do Mag
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_TYPES (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_REF_SILVER_TYPES
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/silver/TB_REF_SILVER_TYPES
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
