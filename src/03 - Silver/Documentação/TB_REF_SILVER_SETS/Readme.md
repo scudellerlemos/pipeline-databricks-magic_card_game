@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de conjuntos de cartas do
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_SETS (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_REF_SILVER_SETS
+- **Arquivo de staging:** s3:/bucket/magic_the_gathering/silver/TB_REF_SILVER_SETS
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
