@@ -14,7 +14,7 @@
 Tabela Silver contendo os dados limpos e transformados de preços de cartas do Magic: The Gathering, processados a partir da camada Bronze com aplicação de limpeza de dados e padronização para análises financeiras e de mercado.
 
 ## 3. Origem dos Dados
-- **Fonte:** TB_BRONZE_CARD_PRICES (camada Bronze)
+- **Fonte:** TB_BRONZE_CARDPRICES (camada Bronze)
 - **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_FATO_SILVER_CARDPRICES
 
 ## 4. Linhagem dos Dados
