@@ -15,7 +15,7 @@ Tabela Silver contendo os dados limpos e transformados de cartas do Magic: The G
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_BRONZE_CARDS (camada Bronze)
-- **Arquivo de staging:** s3://<bucket>/magic_the_gathering/silver/TB_FATO_SILVER_CARDS
+- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/silver/TB_FATO_SILVER_CARDS
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
