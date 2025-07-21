@@ -224,41 +224,6 @@ delta_table.alias("silver").merge(
 - **Dados de Referência**: Particionamento por ano/mês de ingestão
 - **Dados de Preços**: Particionamento por ano/mês de ingestão
 
-## 🚀 Como Executar
-
-### Execução Individual
-```python
-# Executar notebook específico
-Cards.ipynb
-Sets.ipynb
-Types.ipynb
-SuperTypes.ipynb
-SubTypes.ipynb
-Formats.ipynb
-Card_Prices.ipynb
-```
-
-### Execução Sequencial
-```python
-# Executar todos os notebooks em ordem
-Types.ipynb
-SuperTypes.ipynb
-SubTypes.ipynb
-Formats.ipynb
-Sets.ipynb
-Cards.ipynb
-Card_Prices.ipynb  # Deve ser executado após Cards.ipynb
-```
-
-## 📋 Checklist de Execução
-
-- [ ] Segredos configurados no Databricks
-- [ ] Permissões Unity Catalog verificadas
-- [ ] Cluster Spark disponível
-- [ ] Dados da Bronze disponíveis
-- [ ] Espaço em disco suficiente
-- [ ] Limitações de demonstração compreendidas
-
 ## 🔗 Próximos Passos
 
 Após o processamento na Silver, os dados estarão disponíveis para:
