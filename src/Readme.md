@@ -176,8 +176,8 @@ load_to_gold_unity_incremental(df_gold, "TB_ANALISE_MERCADO_CARTAS_EXECUTIVO")
 
 ### **Qualidade**
 - **Bronze**: Preservação de dados originais
-- **Silver**: 99.9% de dados limpos e válidos
-- **Gold**: 100% de análises com métricas validadas
+- **Silver**: Dados limpos e válidos
+- **Gold**: Análises com métricas validadas
 
 ## 🎯 Casos de Uso
 
