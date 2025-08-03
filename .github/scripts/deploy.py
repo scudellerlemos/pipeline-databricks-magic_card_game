@@ -33,15 +33,29 @@ def convert_yaml_to_json():
             log("❌ Job MTG_PIPELINE não encontrado na configuração", "ERROR")
             return False
         
+        # Extract only the job configuration (not the full resources structure)
+        job_config = yaml_data['resources']['jobs']['MTG_PIPELINE']
+        
         # Convert to JSON
         log("🔄 Convertendo para JSON...")
-        json_content = json.dumps(yaml_data, indent=2, ensure_ascii=False)
+        json_content = json.dumps(job_config, indent=2, ensure_ascii=False)
         
         # Write JSON file
         with open('magic.json', 'w', encoding='utf-8') as f:
             f.write(json_content)
         
         log(f"✅ JSON file written: {len(json_content)} characters")
+        log(f"📊 Job config keys: {list(job_config.keys())}")
+        
+        # Validate JSON file was created correctly
+        try:
+            with open('magic.json', 'r', encoding='utf-8') as f:
+                test_json = json.load(f)
+            log("✅ JSON file validation passed")
+        except Exception as e:
+            log(f"❌ JSON file validation failed: {e}", "ERROR")
+            return False
+        
         return True
         
     except Exception as e:
@@ -155,24 +169,56 @@ def deploy_job():
         # Check if job exists
         job_id = get_existing_job_id()
         
+        # Debug: Show JSON file content
+        try:
+            with open('magic.json', 'r', encoding='utf-8') as f:
+                json_content = f.read()
+            log(f"📄 JSON file preview (first 500 chars): {json_content[:500]}...")
+        except Exception as e:
+            log(f"⚠️ Could not read JSON file: {e}", "WARN")
+        
         if job_id:
             log(f"🔄 Atualizando job existente ID: {job_id}")
-            result = subprocess.run(
-                ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json', '@magic.json'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            log("✅ Job atualizado com sucesso!")
+            try:
+                # Try with new CLI syntax first
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json', '@magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log("✅ Job atualizado com sucesso!")
+            except subprocess.CalledProcessError as e:
+                log(f"⚠️ Erro com sintaxe nova, tentando sintaxe antiga: {e.stderr}", "WARN")
+                # Fallback for old CLI version
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log("✅ Job atualizado com sucesso (sintaxe antiga)!")
         else:
             log("🆕 Criando novo job...")
-            result = subprocess.run(
-                ['databricks', 'jobs', 'create', '--json', '@magic.json'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            log("✅ Job criado com sucesso!")
+            try:
+                # Try with new CLI syntax first
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'create', '--json', '@magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log("✅ Job criado com sucesso!")
+            except subprocess.CalledProcessError as e:
+                log(f"⚠️ Erro com sintaxe nova, tentando sintaxe antiga: {e.stderr}", "WARN")
+                # Fallback for old CLI version
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log("✅ Job criado com sucesso (sintaxe antiga)!")
         
         log(f"📄 Resposta do Databricks: {result.stdout}")
         
