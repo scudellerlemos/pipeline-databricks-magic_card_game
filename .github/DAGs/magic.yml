@@ -2,9 +2,10 @@ resources:
   jobs:
     MTG_PIPELINE:
       name: MTG_PIPELINE
-      description: Pipeline de dados da API de Magic: The Gathering
+      description: "Pipeline de dados da API de Magic: The Gathering"
       schedule:
-        quartz_cron_expression: "0 0 6 * * ?"  # Executa diariamente às 6h
+        # Executa diariamente às 6h
+        quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: America/Sao_Paulo
         pause_status: UNPAUSED
       tasks:
