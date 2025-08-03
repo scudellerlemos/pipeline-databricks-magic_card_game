@@ -24,7 +24,7 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install pyyaml jsonschema
+        pip install pyyaml jsonschema databricks-cli
         
     - name: Validate YAML syntax
       run: |

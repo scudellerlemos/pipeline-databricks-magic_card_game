@@ -32,9 +32,9 @@ jobs:
       with:
         python-version: '3.9'
         
-    - name: Install Databricks CLI
+    - name: Install dependencies
       run: |
-        pip install databricks-cli
+        pip install databricks-cli pyyaml
         databricks --version
         
     - name: Configure Databricks CLI
