@@ -14,7 +14,7 @@
 Tabela Gold contendo sistema de alertas executivos para mudanças significativas no mercado de cartas Magic: The Gathering. Esta tabela fornece detecção automática de oportunidades, notificações de risco e priorização de ações para suportar decisões executivas rápidas e estratégicas no mercado de cartas.
 
 ## 3. Origem dos Dados
-- **Fonte:** TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES (camada Silver)
+- **Fonte:** TB_REF_SILVER_CARDS, TB_REF_SILVER_CARDPRICES (camada Silver)
 - **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/gold/TB_REPORT_ALERTAS_EXECUTIVOS
 
 ## 4. Linhagem dos Dados

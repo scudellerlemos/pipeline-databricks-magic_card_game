@@ -14,7 +14,7 @@
 Tabela Gold contendo análise de padrões temporais, sazonalidade e tendências de mercado para cartas Magic: The Gathering. Esta tabela fornece insights sobre comportamento sazonal, tendências de longo prazo, padrões cíclicos e indicadores de momentum para suportar estratégias de timing de investimento e análise de mercado.
 
 ## 3. Origem dos Dados
-- **Fonte:** TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES (camada Silver)
+- **Fonte:** TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES,TB_REF_SILVER_SETS (camada Silver)
 - **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/gold/TB_ANALISE_TEMPORAL
 
 ## 4. Linhagem dos Dados
