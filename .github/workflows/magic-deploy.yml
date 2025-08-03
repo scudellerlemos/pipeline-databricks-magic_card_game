@@ -21,6 +21,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: Databricks
     
     steps:
     - name: Checkout code
