@@ -221,6 +221,7 @@ resources:
         - job_cluster_key: Job_cluster
           new_cluster:
             spark_version: "14.3.x-scala2.12"
+            kind: "SINGLE_NODE"
             aws_attributes:
               first_on_demand: 1
               zone_id: "us-west-1a"
@@ -234,9 +235,6 @@ resources:
               spark.databricks.delta.preview.enabled: "true"
               spark.databricks.delta.optimizeWrite.enabled: "true"
               spark.databricks.delta.autoCompact.enabled: "true"
-            autoscale:
-              min_workers: 1
-              max_workers: 2
               
       # ============================================================================
       # GIT CONFIGURATION
