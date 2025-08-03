@@ -1,0 +1,81 @@
+name: Deploy Databricks Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/magic-deploy.yml'
+      - '.github/DAGs/magic.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/magic-deploy.yml'
+      - '.github/DAGs/magic.yml'
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Databricks CLI
+      run: |
+        pip install databricks-cli
+        databricks --version
+        
+    - name: Configure Databricks CLI
+      run: |
+        echo "DATABRICKS_HOST=$DATABRICKS_HOST" >> $GITHUB_ENV
+        echo "DATABRICKS_TOKEN=$DATABRICKS_TOKEN" >> $GITHUB_ENV
+        
+    - name: Validate YAML
+      run: |
+        python -c "import yaml; yaml.safe_load(open('.github/DAGs/magic.yml', 'r'))"
+        echo "✅ YAML validation passed"
+        
+    - name: Deploy to Databricks
+      if: github.ref == 'refs/heads/main'
+      run: |
+        databricks jobs create --json @.github/DAGs/magic.yml
+        echo "✅ Pipeline deployed successfully"
+      env:
+        DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+        DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        
+    - name: Update existing job
+      if: github.ref == 'refs/heads/main'
+      run: |
+        # Get job ID if exists
+        JOB_ID=$(databricks jobs list --output JSON | jq -r '.jobs[] | select(.settings.name == "MTG_PIPELINE") | .job_id' | head -1)
+        if [ ! -z "$JOB_ID" ]; then
+          echo "Updating existing job ID: $JOB_ID"
+          databricks jobs reset --job-id $JOB_ID --json @.github/DAGs/magic.yml
+        else
+          echo "Creating new job"
+          databricks jobs create --json @.github/DAGs/magic.yml
+        fi
+      env:
+        DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+        DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        
+    - name: Test deployment
+      if: github.ref == 'refs/heads/main'
+      run: |
+        sleep 30
+        databricks jobs list --output JSON | jq -r '.jobs[] | select(.settings.name == "MTG_PIPELINE") | "Job ID: \(.job_id), Status: \(.settings.schedule.pause_status)"'
+      env:
+        DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+        DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }} 
