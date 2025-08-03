@@ -220,7 +220,6 @@ resources:
       job_clusters:
         - job_cluster_key: Job_cluster
           new_cluster:
-            cluster_name: "mtg-pipeline-cluster"
             spark_version: "14.3.x-scala2.12"
             aws_attributes:
               first_on_demand: 1
@@ -230,9 +229,6 @@ resources:
             spark_env_vars:
               PYSPARK_PYTHON: "/databricks/python3/bin/python3"
             enable_elastic_disk: false
-            data_security_mode: "DATA_SECURITY_MODE_DEDICATED"
-            runtime_engine: "STANDARD"
-            kind: "CLASSIC_PREVIEW"
             is_single_node: true
             spark_conf:
               spark.databricks.delta.preview.enabled: "true"
@@ -262,5 +258,5 @@ resources:
       # ============================================================================
       # QUEUE CONFIGURATION
       # ============================================================================
-      queue:
-        enabled: true 
+      # queue:
+      #   enabled: true 
