@@ -5,14 +5,11 @@ on:
     branches: [ main ]
     paths:
       - 'src/**'
-      - '.github/workflows/magic-deploy.yml'
-      - '.github/DAGs/magic.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'src/**'
-      - '.github/workflows/magic-deploy.yml'
-      - '.github/DAGs/magic.yml'
+ 
 
 env:
   DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -54,59 +51,12 @@ jobs:
     - name: Deploy to Databricks
       if: github.ref == 'refs/heads/main'
       run: |
-        # Convert YAML to JSON and deploy
-        python -c "
-        import yaml
-        import json
-        import sys
-        
-        # Read YAML file
-        with open('.github/DAGs/magic.yml', 'r') as f:
-            yaml_data = yaml.safe_load(f)
-        
-        # Write JSON file
-        with open('magic.json', 'w') as f:
-            json.dump(yaml_data, f, indent=2)
-        
-        print('✅ YAML converted to JSON successfully')
-        "
-        
-        # Deploy using JSON file
-        databricks jobs create --json @magic.json
-        echo "✅ Pipeline deployed successfully"
+        python .github/scripts/deploy.py
       env:
         DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
         DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         
-    - name: Update existing job
-      if: github.ref == 'refs/heads/main'
-      run: |
-        # Convert YAML to JSON first
-        python -c "
-        import yaml
-        import json
-        
-        with open('.github/DAGs/magic.yml', 'r') as f:
-            yaml_data = yaml.safe_load(f)
-        
-        with open('magic.json', 'w') as f:
-            json.dump(yaml_data, f, indent=2)
-        
-        print('✅ YAML converted to JSON successfully')
-        "
-        
-        # Get job ID if exists
-        JOB_ID=$(databricks jobs list --output JSON | jq -r '.jobs[] | select(.settings.name == "MTG_PIPELINE") | .job_id' | head -1)
-        if [ ! -z "$JOB_ID" ]; then
-          echo "Updating existing job ID: $JOB_ID"
-          databricks jobs reset --job-id $JOB_ID --json @magic.json
-        else
-          echo "Creating new job"
-          databricks jobs create --json @magic.json
-        fi
-      env:
-        DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-        DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
         
     - name: Test deployment
       if: github.ref == 'refs/heads/main'
