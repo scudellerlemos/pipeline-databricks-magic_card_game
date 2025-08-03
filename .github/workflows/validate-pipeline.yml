@@ -5,7 +5,231 @@ on:
     branches: [ main ]
     paths:
       - 'src/**'
-      - '.github/DAGs/magic.yml'
+      - name: Validate Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: Databricks
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install pyyaml jsonschema databricks-cli
+        
+    - name: Validate YAML syntax
+      run: |
+        python -c "import yaml; yaml.safe_load(open('.github/DAGs/magic.yml', 'r'))"
+        echo "✅ YAML syntax is valid"
+        
+    - name: Validate pipeline structure
+      run: |
+        python -c "
+        import yaml
+        import sys
+        
+        with open('.github/DAGs/magic.yml', 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Check if jobs exist
+        if 'resources' not in config or 'jobs' not in config['resources']:
+            print('❌ No jobs found in configuration')
+            sys.exit(1)
+            
+        # Check if MTG_PIPELINE exists
+        if 'MTG_PIPELINE' not in config['resources']['jobs']:
+            print('❌ MTG_PIPELINE job not found')
+            sys.exit(1)
+            
+        job = config['resources']['jobs']['MTG_PIPELINE']
+        
+        # Check required fields
+        required_fields = ['name', 'tasks', 'job_clusters', 'git_source']
+        for field in required_fields:
+            if field not in job:
+                print(f'❌ Missing required field: {field}')
+                sys.exit(1)
+                
+        # Check if tasks exist
+        if not job['tasks']:
+            print('❌ No tasks defined')
+            sys.exit(1)
+            
+        # Check task dependencies
+        task_keys = [task['task_key'] for task in job['tasks']]
+        for task in job['tasks']:
+            if 'depends_on' in task:
+                for dep in task['depends_on']:
+                    if dep['task_key'] not in task_keys:
+                        print(f'❌ Task {task[\"task_key\"]} depends on non-existent task: {dep[\"task_key\"]}')
+                        sys.exit(1)
+                        
+        print('✅ Pipeline structure is valid')
+        print(f'📊 Total tasks: {len(job[\"tasks\"])}')
+        "
+        
+    - name: Check notebook paths
+      run: |
+        python -c "
+        import yaml
+        import os
+        import sys
+        
+        with open('.github/DAGs/magic.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            
+        job = config['resources']['jobs']['MTG_PIPELINE']
+        
+        for task in job['tasks']:
+            if 'notebook_task' in task:
+                notebook_path = task['notebook_task']['notebook_path']
+                # Remove .ipynb extension if present
+                if notebook_path.endswith('.ipynb'):
+                    notebook_path = notebook_path[:-6]
+                    
+                # Check if notebook exists
+                if not os.path.exists(f'{notebook_path}.ipynb'):
+                    print(f'❌ Notebook not found: {notebook_path}.ipynb')
+                    sys.exit(1)
+                    
+        print('✅ All notebook paths are valid')
+        "
+        
+    - name: Validate cluster configuration
+      run: |
+        python -c "
+        import yaml
+        import sys
+        
+        with open('.github/DAGs/magic.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            
+        job = config['resources']['jobs']['MTG_PIPELINE']
+        
+        # Check cluster configuration
+        if 'job_clusters' not in job:
+            print('❌ No job clusters defined')
+            sys.exit(1)
+            
+        for cluster in job['job_clusters']:
+            if 'new_cluster' not in cluster:
+                print('❌ Cluster configuration missing new_cluster section')
+                sys.exit(1)
+                
+            cluster_config = cluster['new_cluster']
+            required_cluster_fields = ['spark_version', 'node_type_id']
+            
+            for field in required_cluster_fields:
+                if field not in cluster_config:
+                    print(f'❌ Missing required cluster field: {field}')
+                    sys.exit(1)
+                    
+        print('✅ Cluster configuration is valid')
+        "
+        
+    - name: Check git configuration
+      run: |
+        python -c "
+        import yaml
+        import sys
+        
+        with open('.github/DAGs/magic.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            
+        job = config['resources']['jobs']['MTG_PIPELINE']
+        
+        if 'git_source' not in job:
+            print('❌ Git source not configured')
+            sys.exit(1)
+            
+        git_config = job['git_source']
+        required_git_fields = ['git_url', 'git_provider', 'git_branch']
+        
+        for field in required_git_fields:
+            if field not in git_config:
+                print(f'❌ Missing required git field: {field}')
+                sys.exit(1)
+                
+        print('✅ Git configuration is valid')
+        "
+        
+    - name: Generate validation report
+      run: |
+        python -c "
+        import yaml
+        from datetime import datetime
+        
+        with open('.github/DAGs/magic.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            
+        job = config['resources']['jobs']['MTG_PIPELINE']
+        
+        print('📋 Pipeline Validation Report')
+        print('=' * 50)
+        print(f'Job Name: {job[\"name\"]}')
+        print(f'Description: {job[\"description\"]}')
+        print(f'Total Tasks: {len(job[\"tasks\"])}')
+        print(f'Schedule: {job[\"schedule\"][\"quartz_cron_expression\"]}')
+        print(f'Timezone: {job[\"schedule\"][\"timezone_id\"]}')
+        print(f'Status: {job[\"schedule\"][\"pause_status\"]}')
+        print()
+        
+        print('📁 Task Breakdown:')
+        task_types = {}
+        for task in job['tasks']:
+            task_type = task['task_key'].split('_')[0]
+            task_types[task_type] = task_types.get(task_type, 0) + 1
+            
+        for task_type, count in task_types.items():
+            print(f'  {task_type}: {count} tasks')
+            
+        print()
+        print('🔗 Dependencies:')
+        for task in job['tasks']:
+            if 'depends_on' in task:
+                deps = [dep['task_key'] for dep in task['depends_on']]
+                print(f'  {task[\"task_key\"]} → {deps}')
+                
+        print()
+        print('✅ Validation completed successfully!')
+        print(f'📅 Generated: {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}')
+        "
+        
+    - name: Comment on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          try {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Pipeline validation passed! The configuration is ready for deployment.'
+            });
+            console.log('✅ Comment posted successfully');
+          } catch (error) {
+            console.log('⚠️ Could not post comment (this is not critical):', error.message);
+          } '.github/DAGs/magic.yml'
       - '.github/workflows/**'
 
 jobs:
