@@ -1,0 +1,265 @@
+resources:
+  jobs:
+    MTG_PIPELINE:
+      name: MTG_PIPELINE
+      description: Pipeline de dados da API de Magic: The Gathering
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"  # Executa diariamente às 6h
+        timezone_id: America/Sao_Paulo
+        pause_status: UNPAUSED
+      tasks:
+        # ============================================================================
+        # INGESTÃO - STAGING
+        # ============================================================================
+        - task_key: STAGE_CARDS
+          notebook_task:
+            notebook_path: src/01 - Ingestion/cards
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_SETS
+          notebook_task:
+            notebook_path: src/01 - Ingestion/sets
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_FORMATS
+          notebook_task:
+            notebook_path: src/01 - Ingestion/formats
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_TYPES
+          notebook_task:
+            notebook_path: src/01 - Ingestion/types
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_SUBTYPES
+          notebook_task:
+            notebook_path: src/01 - Ingestion/subtypes
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_SUPERTYPES
+          notebook_task:
+            notebook_path: src/01 - Ingestion/supertypes
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: STAGE_CARDPRICES
+          depends_on:
+            - task_key: STAGE_CARDS
+          notebook_task:
+            notebook_path: src/01 - Ingestion/card_prices
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        # ============================================================================
+        # BRONZE LAYER
+        # ============================================================================
+        - task_key: BRONZE_CARDS
+          depends_on:
+            - task_key: STAGE_CARDS
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_SETS
+          depends_on:
+            - task_key: STAGE_SETS
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SETS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_FORMATS
+          depends_on:
+            - task_key: STAGE_FORMATS
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_FORMATS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_TYPES
+          depends_on:
+            - task_key: STAGE_TYPES
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_TYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_SUBTYPES
+          depends_on:
+            - task_key: STAGE_SUBTYPES
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SUBTYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_SUPERTYPES
+          depends_on:
+            - task_key: STAGE_SUPERTYPES
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SUPERTYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: BRONZE_CARDPRICES
+          depends_on:
+            - task_key: STAGE_CARDPRICES
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDPRICES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        # ============================================================================
+        # SILVER LAYER
+        # ============================================================================
+        - task_key: SILVER_CARDS
+          depends_on:
+            - task_key: BRONZE_CARDS
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_SETS
+          depends_on:
+            - task_key: BRONZE_SETS
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SETS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_FORMATS
+          depends_on:
+            - task_key: BRONZE_FORMATS
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_FORMATS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_TYPES
+          depends_on:
+            - task_key: BRONZE_TYPES
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_TYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_SUBTYPES
+          depends_on:
+            - task_key: BRONZE_SUBTYPES
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SUBTYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_SUPERTYPES
+          depends_on:
+            - task_key: BRONZE_SUPERTYPES
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SUPERTYPES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: SILVER_CARDPRICES
+          depends_on:
+            - task_key: BRONZE_CARDPRICES
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDPRICES
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        # ============================================================================
+        # GOLD LAYER
+        # ============================================================================
+        - task_key: GOLD_ANALISE_TEMPORAL
+          depends_on:
+            - task_key: SILVER_CARDS
+            - task_key: SILVER_CARDPRICES
+            - task_key: SILVER_SETS
+          notebook_task:
+            notebook_path: src/04 - Gold/Dev/TB_ANALISE_TEMPORAL
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: GOLD_MERCADO_EXECUTIVO
+          depends_on:
+            - task_key: SILVER_CARDS
+            - task_key: SILVER_CARDPRICES
+          notebook_task:
+            notebook_path: src/04 - Gold/Dev/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: GOLD_METRICAS_INVESTIMENTOS
+          depends_on:
+            - task_key: SILVER_CARDS
+            - task_key: SILVER_CARDPRICES
+          notebook_task:
+            notebook_path: src/04 - Gold/Dev/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+        - task_key: GOLD_REPORT_EXECUTIVO
+          depends_on:
+            - task_key: SILVER_CARDS
+            - task_key: SILVER_CARDPRICES
+          notebook_task:
+            notebook_path: src/04 - Gold/Dev/TB_REPORT_ALERTAS_EXECUTIVOS
+            source: GIT
+          job_cluster_key: Job_cluster
+          
+      # ============================================================================
+      # CLUSTER CONFIGURATION
+      # ============================================================================
+      job_clusters:
+        - job_cluster_key: Job_cluster
+          new_cluster:
+            cluster_name: "mtg-pipeline-cluster"
+            spark_version: "14.3.x-scala2.12"
+            aws_attributes:
+              first_on_demand: 1
+              zone_id: "us-west-1a"
+              spot_bid_price_percent: 100
+            node_type_id: "m5d.large"
+            spark_env_vars:
+              PYSPARK_PYTHON: "/databricks/python3/bin/python3"
+            enable_elastic_disk: false
+            data_security_mode: "DATA_SECURITY_MODE_DEDICATED"
+            runtime_engine: "STANDARD"
+            kind: "CLASSIC_PREVIEW"
+            is_single_node: true
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+              spark.databricks.delta.autoCompact.enabled: "true"
+            autoscale:
+              min_workers: 1
+              max_workers: 2
+              
+      # ============================================================================
+      # GIT CONFIGURATION
+      # ============================================================================
+      git_source:
+        git_url: "https://github.com/scudellerlemos/pipeline-databricks-magic_card_game"
+        git_provider: "gitHub"
+        git_branch: "main"
+        
+      # ============================================================================
+      # TAGS AND METADATA
+      # ============================================================================
+      tags:
+        project: "MTG"
+        environment: "production"
+        team: "data-engineering"
+        api_source: "scryfall"
+        
+      # ============================================================================
+      # QUEUE CONFIGURATION
+      # ============================================================================
+      queue:
+        enabled: true 
