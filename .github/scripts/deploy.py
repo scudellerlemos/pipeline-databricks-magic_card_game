@@ -52,19 +52,43 @@ def get_existing_job_id():
     """Obtém o ID do job existente se houver"""
     try:
         log("🔍 Verificando jobs existentes...")
-        result = subprocess.run(
-            ['databricks', 'jobs', 'list', '--output', 'JSON'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
         
-        jobs_data = json.loads(result.stdout)
-        for job in jobs_data.get('jobs', []):
-            if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
-                job_id = job.get('job_id')
-                log(f"✅ Job existente encontrado: ID {job_id}")
-                return job_id
+        # Try with JSON output first (new CLI)
+        try:
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list', '--output', 'JSON'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            jobs_data = json.loads(result.stdout)
+            for job in jobs_data.get('jobs', []):
+                if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
+                    job_id = job.get('job_id')
+                    log(f"✅ Job existente encontrado: ID {job_id}")
+                    return job_id
+            
+        except subprocess.CalledProcessError:
+            # Fallback for old CLI version without --output flag
+            log("⚠️ CLI antiga detectada, listando jobs sem --output flag...")
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Parse text output to find MTG_PIPELINE
+            output_lines = result.stdout.strip().split('\n')
+            for line in output_lines:
+                if 'MTG_PIPELINE' in line:
+                    # Extract job ID from text output (format: "123 MTG_PIPELINE")
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and parts[1] == 'MTG_PIPELINE':
+                        job_id = parts[0]
+                        log(f"✅ Job existente encontrado: ID {job_id}")
+                        return job_id
         
         log("ℹ️ Nenhum job existente encontrado, será criado um novo")
         return None
@@ -88,14 +112,26 @@ def validate_databricks_connection():
         )
         log(f"✅ Databricks CLI version: {result.stdout.strip()}")
         
-        # Test workspace access
-        result = subprocess.run(
-            ['databricks', 'workspace', 'list', '--output', 'JSON'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        log("✅ Conexão com workspace estabelecida")
+        # Test workspace access (compatible with old CLI version)
+        try:
+            result = subprocess.run(
+                ['databricks', 'workspace', 'list', '--output', 'JSON'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            log("✅ Conexão com workspace estabelecida (JSON output)")
+        except subprocess.CalledProcessError:
+            # Fallback for old CLI version without --output flag
+            log("⚠️ CLI antiga detectada, testando sem --output flag...")
+            result = subprocess.run(
+                ['databricks', 'workspace', 'list'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            log("✅ Conexão com workspace estabelecida (text output)")
+        
         return True
         
     except subprocess.CalledProcessError as e:
@@ -170,35 +206,64 @@ def verify_deployment():
         import time
         time.sleep(sleep_time)
         
-        result = subprocess.run(
-            ['databricks', 'jobs', 'list', '--output', 'JSON'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        jobs_data = json.loads(result.stdout)
-        mtg_job = None
-        
-        for job in jobs_data.get('jobs', []):
-            if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
-                mtg_job = job
-                break
-        
-        if mtg_job:
-            job_id = mtg_job.get('job_id')
-            status = mtg_job.get('settings', {}).get('schedule', {}).get('pause_status', 'UNKNOWN')
-            log(f"✅ Job verificado - ID: {job_id}, Status: {status}")
+        # Try with JSON output first (new CLI)
+        try:
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list', '--output', 'JSON'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
             
-            # Log job details
-            log("📊 Detalhes do Job:")
-            log(f"  - Nome: {mtg_job.get('settings', {}).get('name')}")
-            log(f"  - Descrição: {mtg_job.get('settings', {}).get('description', 'N/A')}")
-            log(f"  - Status do Schedule: {status}")
-            log(f"  - Total de Tasks: {len(mtg_job.get('settings', {}).get('tasks', []))}")
+            jobs_data = json.loads(result.stdout)
+            mtg_job = None
             
-            return True
-        else:
+            for job in jobs_data.get('jobs', []):
+                if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
+                    mtg_job = job
+                    break
+            
+            if mtg_job:
+                job_id = mtg_job.get('job_id')
+                status = mtg_job.get('settings', {}).get('schedule', {}).get('pause_status', 'UNKNOWN')
+                log(f"✅ Job verificado - ID: {job_id}, Status: {status}")
+                
+                # Log job details
+                log("📊 Detalhes do Job:")
+                log(f"  - Nome: {mtg_job.get('settings', {}).get('name')}")
+                log(f"  - Descrição: {mtg_job.get('settings', {}).get('description', 'N/A')}")
+                log(f"  - Status do Schedule: {status}")
+                log(f"  - Total de Tasks: {len(mtg_job.get('settings', {}).get('tasks', []))}")
+                
+                return True
+            else:
+                log("❌ Job não encontrado após deploy", "ERROR")
+                return False
+                
+        except subprocess.CalledProcessError:
+            # Fallback for old CLI version without --output flag
+            log("⚠️ CLI antiga detectada, verificando sem --output flag...")
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Parse text output to find MTG_PIPELINE
+            output_lines = result.stdout.strip().split('\n')
+            for line in output_lines:
+                if 'MTG_PIPELINE' in line:
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and parts[1] == 'MTG_PIPELINE':
+                        job_id = parts[0]
+                        log(f"✅ Job verificado - ID: {job_id}")
+                        log("📊 Detalhes do Job:")
+                        log(f"  - Nome: MTG_PIPELINE")
+                        log(f"  - ID: {job_id}")
+                        log("  - Status: Verificado via CLI antiga")
+                        return True
+            
             log("❌ Job não encontrado após deploy", "ERROR")
             return False
             
