@@ -220,17 +220,16 @@ resources:
       job_clusters:
         - job_cluster_key: Job_cluster
           new_cluster:
-            spark_version: "14.3.x-scala2.12"
             kind: "SINGLE_NODE"
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "m5d.large"
             aws_attributes:
               first_on_demand: 1
               zone_id: "us-west-1a"
               spot_bid_price_percent: 100
-            node_type_id: "m5d.large"
             spark_env_vars:
               PYSPARK_PYTHON: "/databricks/python3/bin/python3"
             enable_elastic_disk: false
-            is_single_node: true
             spark_conf:
               spark.databricks.delta.preview.enabled: "true"
               spark.databricks.delta.optimizeWrite.enabled: "true"
