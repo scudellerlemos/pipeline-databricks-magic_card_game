@@ -110,6 +110,8 @@ pipeline-databricks-magic_card_game/
 - **Dados**: Cartas, Sets, Formatos, Tipos, Preços
 - **Formato**: Parquet
 - **Frequência**: Diária (6h da manhã)
+- **Volume**: 1000+ páginas de dados processadas
+- **Paginação**: Automática e otimizada
 
 ### **2. Bronze Layer**
 - **Função**: Armazenamento raw dos dados
@@ -162,6 +164,8 @@ pipeline-databricks-magic_card_game/
 - **Dados**: Cartas, Sets, Tipos, Formatos, Metadados
 - **Características**: API oficial, gratuita, completa
 - **Rate Limiting**: Respeitado automaticamente
+- **Volume**: 1000+ páginas de dados
+- **Paginação**: Implementada automaticamente
 
 ### **Scryfall API**
 - **URL**: `https://api.scryfall.com`
@@ -171,7 +175,7 @@ pipeline-databricks-magic_card_game/
 
 
 ### **Entidades Principais**
-- 🃏 **Cartas**: ~50,000+ cartas únicas
+- 🃏 **Cartas**: ~50,000+ cartas únicas (1000+ páginas da API)
 - 📦 **Sets**: Todas as expansões
 - 🎮 **Formatos**: Standard, Modern, Legacy, etc.
 - 💰 **Preços**: Histórico de preços
@@ -182,6 +186,12 @@ pipeline-databricks-magic_card_game/
 - 📊 **Volatilidade**: Análise de risco
 - 🎯 **Tendências**: Movimentos de mercado
 - ⚡ **Alertas**: Oportunidades de investimento
+
+### **Processamento de Grandes Volumes**
+- 🔄 **Paginação Automática**: 1000+ páginas processadas
+- ⚡ **Performance Otimizada**: Processamento paralelo
+- 📊 **Incremental**: Evita reprocessamento desnecessário
+- 🛡️ **Tolerância a Falhas**: Retry automático em caso de erro
 
 
 ## 🚀 **Como Usar**
@@ -222,6 +232,8 @@ O pipeline é deployado automaticamente quando:
 ## 🔧 **Configuração Técnica**
 
 ### **Cluster Configuration**
+
+#### **🛠️ Ambiente de Desenvolvimento (DEV)**
 ```yaml
 spark_version: "14.3.x-scala2.12"
 node_type_id: "m5d.large"
@@ -232,10 +244,35 @@ aws_attributes:
   spot_bid_price_percent: 100
 ```
 
+#### **🚀 Ambiente de Produção (PRD) - Recomendado**
+```yaml
+spark_version: "14.3.x-scala2.12"
+node_type_id: "m5d.xlarge"          # Maior capacidade
+num_workers: 2                       # Mais workers para performance
+aws_attributes:
+  first_on_demand: 1
+  zone_id: "us-west-1a"
+  spot_bid_price_percent: 100
+spark_conf:
+  spark.databricks.delta.preview.enabled: "true"
+  spark.databricks.delta.optimizeWrite.enabled: "true"
+  spark.databricks.delta.autoCompact.enabled: "true"
+```
+
 ### **Schedule**
 - ⏰ **Frequência**: Diária às 6h (Brasil)
 - 🌍 **Timezone**: America/Sao_Paulo
 - 🔄 **Status**: UNPAUSED
+
+### **Diferenças entre Ambientes**
+
+| Aspecto | DEV | PRD |
+|---------|-----|-----|
+| **Node Type** | m5d.large | m5d.xlarge |
+| **Workers** | 1 | 2 |
+| **Performance** | Básica | Otimizada |
+| **Custo** | Baixo | Médio |
+| **Uso** | Testes/Desenvolvimento | Produção |
 
 ## 🤝 **Contribuição**
 
