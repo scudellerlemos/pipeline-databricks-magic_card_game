@@ -62,17 +62,27 @@ def convert_yaml_to_json():
         log(f"❌ Erro na conversão: {e}", "ERROR")
         return False
 
-def get_existing_job_id():
+def get_existing_job_id(is_new_cli=False):
     """Obtém o ID do job existente se houver"""
     try:
         log("🔍 Verificando jobs existentes...")
         
-        result = subprocess.run(
-            ['databricks', 'jobs', 'list', '--output', 'JSON'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        if is_new_cli:
+            # CLI nova: usa --output json (lowercase)
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list', '--output', 'json'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        else:
+            # CLI antiga: usa --output JSON (uppercase)
+            result = subprocess.run(
+                ['databricks', 'jobs', 'list', '--output', 'JSON'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
         
         jobs_data = json.loads(result.stdout)
         for job in jobs_data.get('jobs', []):
@@ -101,74 +111,76 @@ def validate_databricks_connection():
             text=True,
             check=True
         )
-        log(f"✅ Databricks CLI version: {result.stdout.strip()}")
+        version_output = result.stdout.strip()
+        log(f"✅ Databricks CLI version: {version_output}")
         
-        # Configurar CLI para usar Jobs API 2.1
-        try:
-            log("🔄 Configurando CLI para usar Jobs API 2.1...")
-            
-            # Primeiro, verificar configuração atual
+        # Detectar se é CLI nova (v0.x.x) ou antiga (Version x.x.x)
+        is_new_cli = version_output.startswith('Databricks CLI v')
+        is_old_cli = version_output.startswith('Version ')
+        
+        if is_new_cli:
+            log("🆕 CLI nova detectada")
+            # CLI nova não precisa de configuração específica para Jobs API
+            log("✅ CLI nova não requer configuração adicional")
+        elif is_old_cli:
+            log("📟 CLI antiga detectada")
+            # Configurar CLI antiga para usar Jobs API 2.1
             try:
-                config_result = subprocess.run(
-                    ['databricks', 'jobs', 'configure', '--show'],
+                log("🔄 Configurando CLI antiga para usar Jobs API 2.1...")
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'configure', '--version', '2.1'],
                     capture_output=True,
                     text=True,
                     check=True
                 )
-                log(f"📄 Configuração atual: {config_result.stdout.strip()}")
-            except:
-                log("⚠️ Não foi possível verificar configuração atual", "WARN")
-            
-            # Configurar versão 2.1
+                log("✅ CLI antiga configurada para Jobs API 2.1")
+            except subprocess.CalledProcessError as e:
+                log(f"⚠️ Configuração falhou: {e.stderr}", "WARN")
+                log("🔄 Tentando configuração via variável de ambiente...")
+                os.environ['DATABRICKS_JOBS_API_VERSION'] = '2.1'
+                log("✅ Variável de ambiente configurada")
+        else:
+            log("⚠️ Versão da CLI não reconhecida", "WARN")
+        
+        # Test workspace access (adaptado para diferentes CLIs)
+        if is_new_cli:
+            # CLI nova requer um PATH
             result = subprocess.run(
-                ['databricks', 'jobs', 'configure', '--version', '2.1'],
+                ['databricks', 'workspace', 'list', '/'],
                 capture_output=True,
                 text=True,
                 check=True
             )
-            log("✅ CLI configurado para Jobs API 2.1")
-            
-            # Verificar se a configuração foi aplicada
-            try:
-                verify_result = subprocess.run(
-                    ['databricks', 'jobs', 'configure', '--show'],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                log(f"📄 Nova configuração: {verify_result.stdout.strip()}")
-            except:
-                log("⚠️ Não foi possível verificar nova configuração", "WARN")
-                
-        except subprocess.CalledProcessError as e:
-            log(f"⚠️ Configuração falhou: {e.stderr}", "WARN")
-            log("🔄 Tentando configuração via variável de ambiente...")
-            os.environ['DATABRICKS_JOBS_API_VERSION'] = '2.1'
-            log("✅ Variável de ambiente configurada")
-        
-        # Test workspace access
-        result = subprocess.run(
-            ['databricks', 'workspace', 'list'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        else:
+            # CLI antiga
+            result = subprocess.run(
+                ['databricks', 'workspace', 'list'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
         log("✅ Conexão com workspace estabelecida")
         
-        return True
+        return True, is_new_cli
         
     except subprocess.CalledProcessError as e:
         log(f"❌ Erro na conexão com Databricks: {e.stderr}", "ERROR")
-        return False
+        return False, False
     except Exception as e:
         log(f"❌ Erro inesperado na validação: {e}", "ERROR")
-        return False
+        return False, False
 
 def deploy_job():
     """Faz o deploy do job"""
     try:
         # Validate connection first
-        if not validate_databricks_connection():
+        connection_result = validate_databricks_connection()
+        if isinstance(connection_result, tuple):
+            connection_success, is_new_cli = connection_result
+        else:
+            connection_success, is_new_cli = connection_result, False
+            
+        if not connection_success:
             return False
         
         # Convert YAML to JSON
@@ -176,39 +188,77 @@ def deploy_job():
             return False
         
         # Check if job exists
-        job_id = get_existing_job_id()
+        job_id = get_existing_job_id(is_new_cli)
         
         # Debug: Show JSON file content
         try:
             with open('magic.json', 'r', encoding='utf-8') as f:
                 json_content = f.read()
             log(f"📄 JSON file preview (first 500 chars): {json_content[:500]}...")
+            
+            # Look for job_clusters specifically
+            import json
+            json_data = json.loads(json_content)
+            if 'job_clusters' in json_data:
+                job_cluster = json_data['job_clusters'][0]['new_cluster']
+                log(f"🔍 Job cluster config: kind={job_cluster.get('kind', 'NOT_FOUND')}, is_single_node={job_cluster.get('is_single_node', 'NOT_FOUND')}")
+            else:
+                log("❌ job_clusters não encontrado no JSON!", "ERROR")
         except Exception as e:
             log(f"⚠️ Could not read JSON file: {e}", "WARN")
         
-        # Configurar variáveis de ambiente para forçar Jobs API 2.1
+        # Configurar variáveis de ambiente para CLI antiga
         env = os.environ.copy()
-        env['DATABRICKS_JOBS_API_VERSION'] = '2.1'
+        if not is_new_cli:
+            env['DATABRICKS_JOBS_API_VERSION'] = '2.1'
         
         if job_id:
             log(f"🔄 Atualizando job existente ID: {job_id}")
-            result = subprocess.run(
-                ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env
-            )
+            if is_new_cli:
+                # CLI nova: não tem --json-file, usa stdin
+                with open('magic.json', 'r', encoding='utf-8') as f:
+                    json_content = f.read()
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'reset', str(job_id)],
+                    input=json_content,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env
+                )
+            else:
+                # CLI antiga: usa --json-file
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env
+                )
             log("✅ Job atualizado com sucesso!")
         else:
             log("🆕 Criando novo job...")
-            result = subprocess.run(
-                ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env
-            )
+            if is_new_cli:
+                # CLI nova: não tem --json-file, usa stdin
+                with open('magic.json', 'r', encoding='utf-8') as f:
+                    json_content = f.read()
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'create'],
+                    input=json_content,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env
+                )
+            else:
+                # CLI antiga: usa --json-file
+                result = subprocess.run(
+                    ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    env=env
+                )
             log("✅ Job criado com sucesso!")
         
         log(f"📄 Resposta do Databricks: {result.stdout}")
