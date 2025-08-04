@@ -103,18 +103,18 @@ def validate_databricks_connection():
         )
         log(f"✅ Databricks CLI version: {result.stdout.strip()}")
         
-        # Configurar CLI para usar Jobs API 2.1 (CLI nova)
+        # Configurar CLI para usar Jobs API 2.1
         try:
             log("🔄 Configurando CLI para usar Jobs API 2.1...")
             result = subprocess.run(
-                ['databricks', 'jobs', 'configure', '--version=2.1'],
+                ['databricks', 'jobs', 'configure', '--version', '2.1'],
                 capture_output=True,
                 text=True,
                 check=True
             )
             log("✅ CLI configurado para Jobs API 2.1")
         except subprocess.CalledProcessError as e:
-            log(f"⚠️ Aviso na configuração: {e.stderr}", "WARN")
+            log(f"⚠️ Configuração falhou, continuando: {e.stderr}", "WARN")
         
         # Test workspace access
         result = subprocess.run(
@@ -159,7 +159,7 @@ def deploy_job():
         if job_id:
             log(f"🔄 Atualizando job existente ID: {job_id}")
             result = subprocess.run(
-                ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json', '@magic.json'],
+                ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
                 capture_output=True,
                 text=True,
                 check=True
@@ -168,7 +168,7 @@ def deploy_job():
         else:
             log("🆕 Criando novo job...")
             result = subprocess.run(
-                ['databricks', 'jobs', 'create', '--json', '@magic.json'],
+                ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
                 capture_output=True,
                 text=True,
                 check=True
