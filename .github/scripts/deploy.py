@@ -106,6 +106,20 @@ def validate_databricks_connection():
         # Configurar CLI para usar Jobs API 2.1
         try:
             log("🔄 Configurando CLI para usar Jobs API 2.1...")
+            
+            # Primeiro, verificar configuração atual
+            try:
+                config_result = subprocess.run(
+                    ['databricks', 'jobs', 'configure', '--show'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log(f"📄 Configuração atual: {config_result.stdout.strip()}")
+            except:
+                log("⚠️ Não foi possível verificar configuração atual", "WARN")
+            
+            # Configurar versão 2.1
             result = subprocess.run(
                 ['databricks', 'jobs', 'configure', '--version', '2.1'],
                 capture_output=True,
@@ -113,8 +127,24 @@ def validate_databricks_connection():
                 check=True
             )
             log("✅ CLI configurado para Jobs API 2.1")
+            
+            # Verificar se a configuração foi aplicada
+            try:
+                verify_result = subprocess.run(
+                    ['databricks', 'jobs', 'configure', '--show'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                log(f"📄 Nova configuração: {verify_result.stdout.strip()}")
+            except:
+                log("⚠️ Não foi possível verificar nova configuração", "WARN")
+                
         except subprocess.CalledProcessError as e:
-            log(f"⚠️ Configuração falhou, continuando: {e.stderr}", "WARN")
+            log(f"⚠️ Configuração falhou: {e.stderr}", "WARN")
+            log("🔄 Tentando configuração via variável de ambiente...")
+            os.environ['DATABRICKS_JOBS_API_VERSION'] = '2.1'
+            log("✅ Variável de ambiente configurada")
         
         # Test workspace access
         result = subprocess.run(
@@ -156,13 +186,18 @@ def deploy_job():
         except Exception as e:
             log(f"⚠️ Could not read JSON file: {e}", "WARN")
         
+        # Configurar variáveis de ambiente para forçar Jobs API 2.1
+        env = os.environ.copy()
+        env['DATABRICKS_JOBS_API_VERSION'] = '2.1'
+        
         if job_id:
             log(f"🔄 Atualizando job existente ID: {job_id}")
             result = subprocess.run(
                 ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
             log("✅ Job atualizado com sucesso!")
         else:
@@ -171,7 +206,8 @@ def deploy_job():
                 ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env
             )
             log("✅ Job criado com sucesso!")
         
