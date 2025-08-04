@@ -144,7 +144,6 @@ pipeline-databricks-magic_card_game/
 
 *Stack Tecnológico*
 
-</div>
 
 | Componente | Tecnologia | Versão |
 |------------|------------|---------|
@@ -268,9 +267,6 @@ aws_attributes:
 
 **🎉 Pipeline Magic: The Gathering - Transformando dados em insights estratégicos! 🎉**
 
-[![Made with ❤️](https://img.shields.io/badge/Made%20with-❤️-red.svg)](https://github.com/scudellerlemos/pipeline-databricks-magic_card_game)
-
----
 
 <img src="https://media1.tenor.com/m/yf2J9gTT3rQAAAAC/bye-bye.gif" alt="Bye Bye" width="200" height="150">
 
