@@ -86,9 +86,7 @@ def get_secret(secret_name, default_value=None):
         else:
             # Valores padrão seguros para secrets comuns
             safe_defaults = {
-                'catalog_name': 'magic_the_gathering',
-                's3_bucket': 's3://meu-bucket-default',
-                's3_silver_prefix': 'magic_the_gathering/silver'
+                'catalog_name': 'mtg_dev',
             }
             
             if secret_name in safe_defaults:
@@ -129,50 +127,24 @@ def get_standard_config():
     Returns:
         dict: Dicionário com configurações padrão
     """
-    # Valores padrão seguros para desenvolvimento/teste
-    defaults = {
-        'catalog_name': 'magic_the_gathering',
-        's3_bucket': 's3://meu-bucket-default',
-        's3_silver_prefix': 'magic_the_gathering/silver'
+    # Configuração para ambiente dev (sem secrets externos)
+    config = {
+        'catalog_name': 'mtg_dev',
+        'schema_bronze': 'bronze',
+        'schema_silver': 'silver',
     }
-    
-    config = {}
-    for key, default_value in defaults.items():
-        try:
-            config[key] = dbutils.secrets.get(scope="mtg-pipeline", key=key)
-            print(f"Secret '{key}' configurado: {config[key]}")
-        except:
-            config[key] = default_value
-            print(f"Secret '{key}' não encontrado, usando padrão: {default_value}")
-    
-    # Configurações fixas
-    config['schema_bronze'] = "bronze"
-    config['schema_silver'] = "silver"
-    
+    print(f"Config dev: catalog={config['catalog_name']}")
     return config
 
-def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
+def create_manual_config(catalog_name, s3_bucket=None, s3_silver_prefix=None):
     """
-    Cria configuração manual sem usar secrets (para testes/desenvolvimento)
-    
-    Args:
-        catalog_name (str): Nome do catalog Unity
-        s3_bucket (str): Bucket S3 (com s3://)
-        s3_silver_prefix (str, optional): Prefixo para Silver layer
-        
-    Returns:
-        dict: Configuração manual
-        
-    Example:
-        config = create_manual_config("meu_catalog", "s3://meu-bucket")
-        processor = SilverTableProcessor("TB_REF_SILVER_TYPES", config)
+    Cria configuração manual sem usar secrets (para dev/testes).
+    s3_bucket é ignorado no ambiente dev — tabelas são gerenciadas pelo Unity Catalog.
     """
     return {
         'catalog_name': catalog_name,
         'schema_bronze': "bronze",
         'schema_silver': "silver",
-        's3_bucket': s3_bucket,
-        's3_silver_prefix': s3_silver_prefix or "magic_the_gathering/silver"
     }
 
 # ============================================================================
@@ -323,63 +295,54 @@ def delta_table_exists_and_schema_ok(spark, delta_path, df_final):
     except Exception:
         return False, None
 
-def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_silver_path, 
+def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_silver_path=None,
                                    partition_cols=None, key_column=None):
     """
-    Carrega dados na camada Silver com suporte a Unity Catalog e Delta Lake
-    Suporta merge incremental se key_column for especificado
-    
-    Args:
-        df_final (DataFrame): DataFrame final para salvar
-        catalog (str): Nome do catalog Unity
-        schema (str): Nome do schema Unity
-        table_name (str): Nome da tabela
-        s3_silver_path (str): Caminho S3 base para Silver
-        partition_cols (list, optional): Colunas para particionamento
-        key_column (str, optional): Coluna chave para merge incremental
+    Carrega dados na camada Silver usando tabelas gerenciadas do Unity Catalog (sem S3 externo).
+    s3_silver_path é aceito mas ignorado — storage gerenciado pelo UC.
     """
-    delta_path = f"s3://{s3_silver_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
     
-    print(f"Salvando dados em: {delta_path}")
+    print(f"Salvando tabela gerenciada UC: {full_table_name}")
     print(f"Qtd linhas df_final: {df_final.count()}")
-    print(f"Colunas df_final: {df_final.columns}")
-    
+
     spark_session = get_spark_session()
-    exists, delta_table = delta_table_exists_and_schema_ok(spark_session, delta_path, df_final)
-    
-    if not exists:
-        print("Tabela Delta não existe ou schema mudou. Salvando com overwrite.")
+    table_exists = spark_session.catalog.tableExists(full_table_name)
+
+    if not table_exists:
+        print("Tabela não existe. Criando com overwrite.")
         try:
             writer = df_final.write.format("delta") \
                             .mode("overwrite") \
                             .option("overwriteSchema", "true")
-            
             if partition_cols:
                 writer = writer.partitionBy(*partition_cols)
-                
-            writer.save(delta_path)
-            print("Write Delta concluído com sucesso!")
+            writer.saveAsTable(full_table_name)
+            print("Tabela criada com sucesso!")
         except Exception as e:
-            print(f"Erro no write Delta: {e}")
+            print(f"Erro ao criar tabela: {e}")
             raise
     else:
         if key_column:
-            print(f"Tabela Delta já existe. Executando merge incremental por {key_column}.")
-            count_antes = delta_table.toDF().count()
+            print(f"Tabela existe. Executando merge incremental por {key_column}.")
             df_final = df_final.dropDuplicates([key_column])
             update_cols = [c for c in df_final.columns if c != key_column]
-            set_expr = {col: f"novo.{col}" for col in update_cols}
-            
-            merge_result = delta_table.alias("silver").merge(
+            set_expr = {c: f"novo.{c}" for c in update_cols}
+            delta_table = DeltaTable.forName(spark_session, full_table_name)
+            delta_table.alias("silver").merge(
                 df_final.alias("novo"),
                 f"silver.{key_column} = novo.{key_column}"
-            ).whenMatchedUpdate(set=set_expr) \
-             .whenNotMatchedInsertAll() \
-             .execute()
-            
-            count_depois = delta_table.toDF().count()
-            print(f"Linhas antes do merge: {count_antes}")
+            ).whenMatchedUpdate(set=set_expr).whenNotMatchedInsertAll().execute()
+            print("Merge incremental concluído.")
+        else:
+            print("Tabela existe. Overwrite.")
+            df_final.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(full_table_name)
+
+    print(f"# Dados salvos com sucesso: {full_table_name}")
+    # --- REMOVED old UC CREATE TABLE block (managed table created by saveAsTable above)
+    if False:  # kept for reference
+        count_depois = 0
+        print(f"Linhas antes do merge: {count_antes}")
             print(f"Linhas depois do merge: {count_depois}")
             print(f"Linhas adicionadas: {count_depois - count_antes}")
         else:
@@ -388,30 +351,8 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
     
     # Criação/atualização da tabela no Unity Catalog
     try:
-        spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}")
-        print(f"Schema {catalog}.{schema} criado ou já existente.")
-    except Exception as e:
-        print(f"Erro ao criar schema: {e}")
-    
-    try:
-        # Verifica se a tabela já existe
-        if spark_session.catalog.tableExists(full_table_name):
-            existing_schema = spark_session.table(full_table_name).schema
-            def schema_to_set(schema):
-                return set((f.name.lower(), str(f.dataType).lower()) for f in schema.fields)
-            
-            if schema_to_set(existing_schema) == schema_to_set(df_final.schema):
-                print(f"Tabela {full_table_name} já existe e schema é igual.")
-            else:
-                print(f"Tabela {full_table_name} existe mas schema é diferente. Recriando.")
-                spark_session.sql(f"DROP TABLE IF EXISTS {full_table_name}")
-                spark_session.sql(f"CREATE TABLE {full_table_name} USING DELTA LOCATION '{delta_path}'")
-        else:
-            spark_session.sql(f"CREATE TABLE {full_table_name} USING DELTA LOCATION '{delta_path}'")
-            print(f"Tabela Unity Catalog criada: {full_table_name}")
-    except Exception as e:
-        print(f"Erro ao criar/atualizar tabela Unity Catalog: {e}")
-    
+        pass  # schema e tabela gerenciados pelo saveAsTable acima
+
     print("Dados salvos com sucesso na camada Silver!")
 
 # ============================================================================
@@ -493,9 +434,7 @@ class SilverTableProcessor:
         self.table_name = table_name
         self.config = config or get_standard_config()
         self.spark = get_spark_session()
-        self.s3_silver_path = f"{self.config['s3_bucket']}/{self.config['s3_silver_prefix']}"
-        
-        # Setup Unity Catalog
+        # Setup Unity Catalog (managed tables - no S3 path needed)
         setup_unity_catalog(self.config['catalog_name'], self.config['schema_silver'])
     
     def extract_from_bronze(self, bronze_table_name):
@@ -509,13 +448,12 @@ class SilverTableProcessor:
         return df
     
     def save_silver_table(self, df, partition_cols=None, key_column=None):
-        """Salva tabela na Silver com configurações padrão"""
+        """Salva tabela na Silver (tabela gerenciada UC, sem S3 externo)"""
         load_to_silver_unity_incremental(
             df_final=df,
             catalog=self.config['catalog_name'],
             schema=self.config['schema_silver'],
             table_name=self.table_name,
-            s3_silver_path=self.s3_silver_path,
             partition_cols=partition_cols,
             key_column=key_column
         )
