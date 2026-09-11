@@ -10,7 +10,9 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SKIP_PREFIXES = ("%sql", "%scala", "%md", "%sh", "%fs", "%r", "%%")
+# exact magic tokens whose cell is entirely non-Python (%run is handled
+# separately below, not here - "%run".startswith("%r") would else misfire)
+SKIP_MAGICS = {"%sql", "%scala", "%md", "%sh", "%fs", "%r"}
 RUN_RE = re.compile(r"^%run\s+(\S+)")
 DATABRICKS_STUB = "spark = dbutils = display = displayHTML = sqlContext = table = None\n"
 
@@ -29,7 +31,8 @@ def extract_python(notebook_path, visited):
             continue
         source = "".join(cell.get("source", []))
         first_line = next((l for l in source.splitlines() if l.strip()), "")
-        if first_line.lstrip().startswith(SKIP_PREFIXES):
+        first_token = first_line.lstrip().split(None, 1)[0] if first_line.strip() else ""
+        if first_token in SKIP_MAGICS or first_token.startswith("%%"):
             continue  # whole cell is non-Python (%sql, %md, ...)
 
         kept = []
