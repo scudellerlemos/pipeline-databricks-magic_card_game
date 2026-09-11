@@ -206,7 +206,10 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
 
         if key_column:
             keys = [key_column] if isinstance(key_column, str) else list(key_column)
+            total_antes_dedup = df_final.count()
             df_final = df_final.dropDuplicates(keys)
+            total_depois_dedup = df_final.count()
+            print(f"Removidas {total_antes_dedup - total_depois_dedup} duplicatas baseadas em {keys}")
 
             if DeltaTable.isDeltaTable(spark_session, delta_path):
                 print(f"Tabela Delta já existe. Executando merge incremental por {keys}.")
@@ -215,7 +218,10 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
 
                 update_cols = [c for c in df_final.columns if c not in keys]
                 set_expr = {c: f"novo.{c}" for c in update_cols}
-                match_condition = " AND ".join(f"gold.{k} = novo.{k}" for k in keys)
+                # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
+                # match e a linha seria reinserida a cada execução (reintroduzindo o
+                # acúmulo de duplicatas que este merge existe para evitar - AUD-03).
+                match_condition = " AND ".join(f"gold.{k} <=> novo.{k}" for k in keys)
 
                 delta_table.alias("gold").merge(
                     df_final.alias("novo"), match_condition
