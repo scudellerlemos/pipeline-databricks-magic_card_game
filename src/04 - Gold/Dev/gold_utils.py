@@ -26,7 +26,6 @@ dfs = processor.load_silver_data(['cards', 'prices'])
 processor.save_gold_table(df_final, partition_cols=["DATA_REF"])
 """
 
-import logging
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from pyspark.sql.window import Window
@@ -54,16 +53,9 @@ def get_standard_config():
         's3_bucket': 's3://meu-bucket-default',
         's3_gold_prefix': 'magic_the_gathering/gold'
     }
-    
-    config = {}
-    for key, default_value in defaults.items():
-        try:
-            config[key] = dbutils.secrets.get(scope="mtg-pipeline", key=key)
-            print(f"Secret '{key}' configurado: {config[key]}")
-        except:
-            config[key] = default_value
-            print(f"Secret '{key}' não encontrado, usando padrão: {default_value}")
-    
+
+    config = {key: get_secret(key, extra_safe_defaults=defaults) for key in defaults}
+
     # Configurações fixas
     config['schema_silver'] = "silver"
     config['schema_gold'] = "gold"
