@@ -202,16 +202,16 @@ s3_bucket            # Bucket S3 para armazenamento
 s3_prefix            # Prefixo do caminho S3
 s3_stage_prefix      # Prefixo específico para staging
 
-# Temporal Configuration (apenas para cards e sets)
+# Temporal Configuration (cards, sets e card_prices)
 years_back           # Anos para trás no filtro temporal (padrão: 5)
 ```
 
 ### Estrutura de Pastas S3
 ```
 s3://{bucket}/{prefix}/
-├── {year}_{month}_cards.parquet
+├── {year}_{month}_{day}_cards.parquet   # dia da execução no nome (AUD-04)
 ├── {year}_{month}_card_prices.parquet
-├── {year}_{month}_sets.parquet
+├── {year}_{month}_{day}_sets.parquet    # dia da execução no nome (AUD-04)
 ├── {year}_{month}_types.parquet
 ├── {year}_{month}_supertypes.parquet
 ├── {year}_{month}_subtypes.parquet
@@ -226,10 +226,14 @@ s3://{bucket}/{prefix}/
 - Setup do Spark e S3
 
 ### 2. **Funções Utilitárias**
-- `setup_s3_storage()`: Configuração do storage
-- `make_api_request()`: Requisições com retry e rate limiting
-- `clean_*_data()`: Limpeza e estruturação específica
-- `save_to_parquet()`: Salvamento com particionamento
+- Compartilhadas via `ingestion_utils.py` (`%run ./ingestion_utils`), usada por **todos os 7 notebooks**
+  (AUD-08 resolvido por completo): `get_secret()`, `setup_s3_storage()`, `make_api_request()`,
+  `get_filtered_set_codes()`, `save_to_parquet()`
+- `clean_simple_list()` / `ingest_reference_table()`: também em `ingestion_utils.py` — ingestão genérica
+  para as 4 tabelas de referência (`formats`, `subtypes`, `supertypes`, `types`), que não têm mais
+  boilerplate duplicado local
+- `clean_cards_data()` / `clean_sets_data()`: limpeza específica de schema complexo, mantida em
+  `cards.ipynb`/`sets.ipynb` (não generalizável para o helper genérico)
 
 ### 3. **Ingestão**
 - Coleta de dados da API
@@ -240,11 +244,12 @@ s3://{bucket}/{prefix}/
 ## 📊 Características dos Dados
 
 ### Dados Temporais (Cards e Sets)
-- **Filtro**: Últimos 5 anos por padrão
-- **Particionamento**: Ano/Mês
-- **Incremental**: Evita reprocessamento
-- **Paginado**: Processamento em lotes
-- **⚠️ Limitação de Demonstração**: Apenas 100 páginas por execução
+- **Filtro**: Últimos `years_back` anos (secret, padrão 5), lido de forma consistente por cards/sets/card_prices
+- **Por coleção**: `cards.ipynb` busca a lista de sets dentro da janela (`get_filtered_set_codes`) e
+  pagina o endpoint `/cards?set=<code>` coleção por coleção — sem mais o cap fixo de 100 páginas
+- **Particionamento**: Ano/Mês, com o dia da execução no nome do arquivo (AUD-04: evita pular o mês inteiro
+  a partir da 2ª execução)
+- **Incremental**: Evita reprocessar o mesmo dia duas vezes
 
 ### Dados de Referência (Types, SuperTypes, SubTypes, Formats)
 - **Completo**: Sem filtro temporal
@@ -313,24 +318,14 @@ cards.ipynb
 card_prices.ipynb  # Deve ser executado após cards.ipynb
 ```
 
-## ⚠️ Limitações de Demonstração
+## ⚠️ Escopo da Ingestão
 
-### **Configuração Atual**
-Para fins de **demonstração e teste**, o pipeline está configurado com as seguintes limitações:
-
-- **📄 Paginação**: Máximo de **100 páginas** por execução
-- **⏱️ Tempo**: Execução mais rápida para testes
-- **💾 Dados**: Subconjunto representativo dos dados completos
-- **🔄 Rate Limiting**: Respeitado para não sobrecarregar a API
-
-### **Para Produção**
-Para executar o pipeline completo em produção, ajuste os seguintes parâmetros:
-
-```python
-# Em produção, remova ou aumente o limite de páginas
-MAX_PAGES = None  # ou um valor muito alto
-BATCH_SIZE = 100  # pode ser aumentado
-```
+- **Cards**: por coleção, dentro da janela `years_back` — sem cap fixo de páginas (o cap de
+  100 páginas "para demonstração" foi removido; cada coleção pagina até esgotar)
+- **Sets**: filtrados por `releaseDate >= cutoff`, mesma janela `years_back`
+- **Card prices**: cutoff também lido de `years_back` (antes era um `5` hardcoded, dessincronizado)
+- Para mudar a janela (ex.: 2 anos), basta alterar o secret `years_back` no scope `mtg-pipeline` —
+  os três notebooks já leem o mesmo valor
 
 ## 📋 Checklist de Execução
 
@@ -454,7 +449,8 @@ def clean_sets_data(data):
     # booster_0, booster_1, booster_2, etc.
 
 # Types/SuperTypes/SubTypes/Formats - Estruturação simples
-def clean_types_data(data):
+# (função genérica em ingestion_utils.py, usada pelos 4 notebooks via ingest_reference_table)
+def clean_simple_list(data, field_name):
     # Lista de strings → Lista de dicionários
     # {"type_name": "Creature"}
 ```
