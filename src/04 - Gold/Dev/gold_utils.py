@@ -8,15 +8,19 @@ Inclui funções para Unity Catalog, Secrets, carregamento Delta e logging.
 ADAPTADO PARA DATABRICKS NOTEBOOKS:
 - dbutils e spark são disponíveis globalmente nos notebooks
 - SparkSession obtido automaticamente do contexto global
-- Use %run ./gold_utils para importar no notebook
+- Requer infraestrutura comum (AUD-09) já carregada no notebook via:
+  %run ../../00 - Common/Dev/base_utils
+- Use %run ./gold_utils para importar no notebook, DEPOIS do %run acima
 
 EXEMPLO DE USO NO NOTEBOOK:
 
 OPÇÃO 1 - Com Secrets configurados:
+%run ../../00 - Common/Dev/base_utils
 %run ./gold_utils
 processor = GoldTableProcessor("MINHA_TABELA")
 
 OPÇÃO 2 - Configuração manual (sem secrets):
+%run ../../00 - Common/Dev/base_utils
 %run ./gold_utils
 config = create_manual_config("meu_catalog", "s3://meu-bucket")
 processor = GoldTableProcessor("MINHA_TABELA", config)
@@ -26,7 +30,6 @@ dfs = processor.load_silver_data(['cards', 'prices'])
 processor.save_gold_table(df_final, partition_cols=["DATA_REF"])
 """
 
-import logging
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from pyspark.sql.window import Window
@@ -34,93 +37,17 @@ from delta.tables import DeltaTable
 from pyspark.sql.utils import AnalysisException
 
 # ============================================================================
-# INICIALIZAÇÃO PARA DATABRICKS
+# INFRAESTRUTURA COMUM (Spark session, Unity Catalog, secrets) - AUD-09
+# get_spark_session / setup_unity_catalog / get_secret vêm de base_utils.py,
+# que o notebook chamador deve importar via %run ANTES deste arquivo
+# (ver docstring acima). Não fazemos %run aninhado aqui: o lint estático de
+# notebooks (AUD-10) só resolve %run um nível, então um %run dentro deste
+# arquivo vira texto Python inválido quando inlined por ele.
 # ============================================================================
-def get_spark_session():
-    """Obtém SparkSession do contexto global do Databricks"""
-    try:
-        return spark  # Disponível globalmente no Databricks
-    except:
-        from pyspark.sql import SparkSession
-        return SparkSession.builder.getOrCreate()
 
 # ============================================================================
-# CONFIGURAÇÃO GLOBAL
+# FUNÇÕES DE CONFIGURAÇÃO
 # ============================================================================
-class GoldConfig:
-    """Configurações globais para a camada Gold"""
-    
-    def __init__(self):
-        self.spark = get_spark_session()
-        self.setup_logging()
-        
-    def setup_logging(self):
-        """Configura logging padrão"""
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-
-# ============================================================================
-# FUNÇÕES DE SECRETS E CONFIGURAÇÃO
-# ============================================================================
-def get_secret(secret_name, default_value=None):
-    """
-    Obtém segredos do Databricks Secret Scope
-    
-    Args:
-        secret_name (str): Nome do secret
-        default_value (str, optional): Valor padrão se secret não for encontrado
-        
-    Returns:
-        str: Valor do secret
-        
-    Raises:
-        Exception: Se secret obrigatório não for encontrado
-    """
-    try:
-        return dbutils.secrets.get(scope="mtg-pipeline", key=secret_name)
-    except:
-        if default_value is not None:
-            print(f"Secret '{secret_name}' não encontrado, usando valor padrão: {default_value}")
-            return default_value
-        else:
-            # Valores padrão seguros para secrets comuns
-            safe_defaults = {
-                'catalog_name': 'magic_the_gathering',
-                's3_bucket': 's3://meu-bucket-default',
-                's3_gold_prefix': 'magic_the_gathering/gold'
-            }
-            
-            if secret_name in safe_defaults:
-                print(f"Secret '{secret_name}' não encontrado, usando valor padrão: {safe_defaults[secret_name]}")
-                return safe_defaults[secret_name]
-            else:
-                print(f"⚠️ Secret '{secret_name}' não encontrado e sem valor padrão")
-                print(f"💡 Configure o secret ou use create_manual_config()")
-                raise Exception(f"Secret '{secret_name}' not configured and no default available")
-
-def setup_unity_catalog(catalog, schema):
-    """
-    Configura Unity Catalog criando catalog e schema se necessário
-    
-    Args:
-        catalog (str): Nome do catalog
-        schema (str): Nome do schema
-        
-    Returns:
-        bool: True se configuração foi bem-sucedida
-    """
-    spark_session = get_spark_session()
-    try:
-        spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
-        spark_session.sql(f"USE CATALOG {catalog}")
-        spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        spark_session.sql(f"USE SCHEMA {schema}")
-        print(f"Schema {catalog}.{schema} configurado com sucesso")
-        return True
-    except Exception as e:
-        print(f"Erro ao configurar Unity Catalog: {e}")
-        return False
-
 def get_standard_config():
     """
     Retorna configuração padrão para scripts Gold com valores padrão seguros
@@ -134,16 +61,9 @@ def get_standard_config():
         's3_bucket': 's3://meu-bucket-default',
         's3_gold_prefix': 'magic_the_gathering/gold'
     }
-    
-    config = {}
-    for key, default_value in defaults.items():
-        try:
-            config[key] = dbutils.secrets.get(scope="mtg-pipeline", key=key)
-            print(f"Secret '{key}' configurado: {config[key]}")
-        except:
-            config[key] = default_value
-            print(f"Secret '{key}' não encontrado, usando padrão: {default_value}")
-    
+
+    config = {key: get_secret(key, extra_safe_defaults=defaults) for key in defaults}
+
     # Configurações fixas
     config['schema_silver'] = "silver"
     config['schema_gold'] = "gold"
