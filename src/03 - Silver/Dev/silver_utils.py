@@ -336,7 +336,7 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
         table_name (str): Nome da tabela
         s3_silver_path (str): Caminho S3 base para Silver
         partition_cols (list, optional): Colunas para particionamento
-        key_column (str, optional): Coluna chave para merge incremental
+        key_column (str or list, optional): Coluna(s) chave para merge incremental
     """
     delta_path = f"s3://{s3_silver_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
@@ -365,15 +365,17 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
             raise
     else:
         if key_column:
-            print(f"Tabela Delta já existe. Executando merge incremental por {key_column}.")
+            key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
+            print(f"Tabela Delta já existe. Executando merge incremental por {key_cols}.")
             count_antes = delta_table.toDF().count()
-            df_final = df_final.dropDuplicates([key_column])
-            update_cols = [c for c in df_final.columns if c != key_column]
+            df_final = df_final.dropDuplicates(key_cols)
+            update_cols = [c for c in df_final.columns if c not in key_cols]
             set_expr = {col: f"novo.{col}" for col in update_cols}
-            
+            merge_condition = " AND ".join(f"silver.{k} = novo.{k}" for k in key_cols)
+
             merge_result = delta_table.alias("silver").merge(
                 df_final.alias("novo"),
-                f"silver.{key_column} = novo.{key_column}"
+                merge_condition
             ).whenMatchedUpdate(set=set_expr) \
              .whenNotMatchedInsertAll() \
              .execute()
