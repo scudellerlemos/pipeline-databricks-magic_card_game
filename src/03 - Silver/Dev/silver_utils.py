@@ -8,15 +8,19 @@ Inclui funções para Unity Catalog, Secrets, carregamento Delta e transformaç�
 ADAPTADO PARA DATABRICKS NOTEBOOKS:
 - dbutils e spark são disponíveis globalmente nos notebooks
 - SparkSession obtido automaticamente do contexto global
-- Use %run ./silver_utils para importar no notebook
+- Requer infraestrutura comum (AUD-09) já carregada no notebook via:
+  %run ../../00 - Common/Dev/base_utils
+- Use %run ./silver_utils para importar no notebook, DEPOIS do %run acima
 
 EXEMPLO DE USO NO NOTEBOOK:
 
 OPÇÃO 1 - Com Secrets configurados:
+%run ../../00 - Common/Dev/base_utils
 %run ./silver_utils
 processor = SilverTableProcessor("TB_REF_SILVER_TYPES")
 
 OPÇÃO 2 - Configuração manual (sem secrets):
+%run ../../00 - Common/Dev/base_utils
 %run ./silver_utils
 config = create_manual_config("meu_catalog", "s3://meu-bucket")
 processor = SilverTableProcessor("TB_REF_SILVER_TYPES", config)
@@ -35,8 +39,12 @@ from pyspark.sql.utils import AnalysisException
 
 # ============================================================================
 # INFRAESTRUTURA COMUM (Spark session, Unity Catalog, secrets) - AUD-09
+# get_spark_session / setup_unity_catalog / get_secret vêm de base_utils.py,
+# que o notebook chamador deve importar via %run ANTES deste arquivo
+# (ver docstring acima). Não fazemos %run aninhado aqui: o lint estático de
+# notebooks (AUD-10) só resolve %run um nível, então um %run dentro deste
+# arquivo vira texto Python inválido quando inlined por ele.
 # ============================================================================
-%run ../../00 - Common/Dev/base_utils
 
 # ============================================================================
 # FUNÇÕES DE CONFIGURAÇÃO
