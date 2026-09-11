@@ -85,9 +85,7 @@ def get_secret(secret_name, default_value=None):
         else:
             # Valores padrão seguros para secrets comuns
             safe_defaults = {
-                'catalog_name': 'magic_the_gathering',
-                's3_bucket': 's3://meu-bucket-default',
-                's3_gold_prefix': 'magic_the_gathering/gold'
+                'catalog_name': 'mtg_dev',
             }
             
             if secret_name in safe_defaults:
@@ -100,7 +98,7 @@ def get_secret(secret_name, default_value=None):
 
 def setup_unity_catalog(catalog, schema):
     """
-    Configura Unity Catalog criando catalog e schema se necessário
+    Configura Unity Catalog existente para uso na camada Gold
     
     Args:
         catalog (str): Nome do catalog
@@ -111,9 +109,7 @@ def setup_unity_catalog(catalog, schema):
     """
     spark_session = get_spark_session()
     try:
-        spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
         spark_session.sql(f"USE CATALOG {catalog}")
-        spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         spark_session.sql(f"USE SCHEMA {schema}")
         print(f"Schema {catalog}.{schema} configurado com sucesso")
         return True
@@ -128,99 +124,59 @@ def get_standard_config():
     Returns:
         dict: Dicionário com configurações padrão
     """
-    # Valores padrão seguros para desenvolvimento/teste
-    defaults = {
-        'catalog_name': 'magic_the_gathering',
-        's3_bucket': 's3://meu-bucket-default',
-        's3_gold_prefix': 'magic_the_gathering/gold'
+    # Configuração para ambiente dev (sem secrets externos)
+    config = {
+        'catalog_name': 'mtg_dev',
+        'schema_silver': 'silver',
+        'schema_gold': 'gold',
     }
-    
-    config = {}
-    for key, default_value in defaults.items():
-        try:
-            config[key] = dbutils.secrets.get(scope="mtg-pipeline", key=key)
-            print(f"Secret '{key}' configurado: {config[key]}")
-        except:
-            config[key] = default_value
-            print(f"Secret '{key}' não encontrado, usando padrão: {default_value}")
-    
-    # Configurações fixas
-    config['schema_silver'] = "silver"
-    config['schema_gold'] = "gold"
-    
+    print(f"Config dev: catalog={config['catalog_name']}")
     return config
 
-def create_manual_config(catalog_name, s3_bucket, s3_gold_prefix=None):
+def create_manual_config(catalog_name, s3_bucket=None, s3_gold_prefix=None):
     """
-    Cria configuração manual sem usar secrets (para testes/desenvolvimento)
-    
-    Args:
-        catalog_name (str): Nome do catalog Unity
-        s3_bucket (str): Bucket S3 (com s3://)
-        s3_gold_prefix (str, optional): Prefixo para Gold layer
-        
-    Returns:
-        dict: Configuração manual
-        
-    Example:
-        config = create_manual_config("meu_catalog", "s3://meu-bucket")
-        processor = GoldTableProcessor("MINHA_TABELA", config)
+    Cria configuração manual para dev (sem secrets).
+    s3_bucket é ignorado — tabelas gerenciadas pelo Unity Catalog.
     """
     return {
         'catalog_name': catalog_name,
         'schema_silver': "silver",
         'schema_gold': "gold",
-        's3_bucket': s3_bucket,
-        's3_gold_prefix': s3_gold_prefix or "magic_the_gathering/gold"
     }
 
 # ============================================================================
 # FUNÇÕES DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
-def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gold_path, 
+def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gold_path=None,
                                   partition_cols=None, mode="overwrite"):
     """
-    Carrega dados na camada Gold com suporte a Unity Catalog e Delta Lake
-    
-    Args:
-        df_final (DataFrame): DataFrame final para salvar
-        catalog (str): Nome do catalog Unity
-        schema (str): Nome do schema Unity
-        table_name (str): Nome da tabela
-        s3_gold_path (str): Caminho S3 base para Gold
-        partition_cols (list, optional): Colunas para particionamento
-        mode (str): Modo de escrita (overwrite, append)
+    Carrega dados na camada Gold usando tabelas gerenciadas do Unity Catalog (sem S3 externo).
+    s3_gold_path é aceito mas ignorado — storage gerenciado pelo UC.
     """
-    delta_path = f"s3://{s3_gold_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
-    
-    print(f"Salvando dados em: {delta_path}")
+    spark_session = get_spark_session()
+
+    if df_final is None:
+        raise ValueError(f"Nenhum dado disponível para materializar {full_table_name}")
+
+    print(f"Salvando tabela gerenciada UC: {full_table_name}")
     print(f"Qtd linhas df_final: {df_final.count()}")
-    
+
     try:
-        # Configurar writer
+        table_exists = spark_session.catalog.tableExists(full_table_name)
         writer = df_final.write.format("delta") \
-                        .mode(mode) \
+                        .mode("overwrite") \
                         .option("overwriteSchema", "true")
-        
-        # Adicionar particionamento se especificado
         if partition_cols:
             writer = writer.partitionBy(*partition_cols)
-            
-        # Salvar dados
-        writer.save(delta_path)
-        
-        # Criar/atualizar tabela Unity Catalog
-        spark_session = get_spark_session()
-        try:
-            spark_session.sql(f"SELECT 1 FROM {full_table_name} LIMIT 1")
-            print(f"Tabela Unity Catalog '{full_table_name}' já existe")
-        except:
-            spark_session.sql(f"CREATE TABLE {full_table_name} USING DELTA LOCATION '{delta_path}'")
-            print(f"Tabela Unity Catalog criada: {full_table_name}")
-        
-        print("Dados salvos com sucesso!")
-        
+
+        if not table_exists:
+            print(f"Tabela não existe. Criando {full_table_name}...")
+        else:
+            print(f"Tabela já existe. Atualizando {full_table_name} em Delta...")
+
+        writer.saveAsTable(full_table_name)
+        print(f"Dados salvos com sucesso: {full_table_name}")
     except Exception as e:
         print(f"Erro ao salvar dados: {e}")
         raise
@@ -261,12 +217,17 @@ def load_silver_tables(config, table_list=None):
     
     # Carregar tabelas com aliases
     dataframes = {}
+    missing_tables = []
     for alias, table_name in tables_to_load.items():
         try:
             dataframes[alias] = spark_session.table(table_name).alias(alias)
             print(f"Tabela carregada: {alias} -> {table_name}")
         except Exception as e:
             print(f"Erro ao carregar {table_name}: {e}")
+            missing_tables.append(table_name)
+
+    if missing_tables:
+        raise Exception(f"Tabelas Silver obrigatórias não materializadas: {missing_tables}")
             
     return dataframes
 
@@ -335,9 +296,7 @@ class GoldTableProcessor:
         self.table_name = table_name
         self.config = config or get_standard_config()
         self.spark = get_spark_session()
-        self.s3_gold_path = f"{self.config['s3_bucket']}/{self.config['s3_gold_prefix']}"
-        
-        # Setup Unity Catalog
+        # Setup Unity Catalog (managed tables - no S3 path)
         setup_unity_catalog(self.config['catalog_name'], self.config['schema_gold'])
     
     def load_silver_data(self, tables):
@@ -345,13 +304,12 @@ class GoldTableProcessor:
         return load_silver_tables(self.config, tables)
     
     def save_gold_table(self, df, partition_cols=None):
-        """Salva tabela na Gold com configurações padrão"""
+        """Salva tabela na Gold (tabela gerenciada UC, sem S3 externo)"""
         load_to_gold_unity_incremental(
             df_final=df,
             catalog=self.config['catalog_name'],
             schema=self.config['schema_gold'],
             table_name=self.table_name,
-            s3_gold_path=self.s3_gold_path,
             partition_cols=partition_cols
         )
         
