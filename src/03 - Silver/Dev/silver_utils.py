@@ -99,7 +99,7 @@ def get_secret(secret_name, default_value=None):
 
 def setup_unity_catalog(catalog, schema):
     """
-    Configura Unity Catalog criando catalog e schema se necessário
+    Configura Unity Catalog existente para uso nas camadas Silver/Gold
     
     Args:
         catalog (str): Nome do catalog
@@ -110,9 +110,7 @@ def setup_unity_catalog(catalog, schema):
     """
     spark_session = get_spark_session()
     try:
-        spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
         spark_session.sql(f"USE CATALOG {catalog}")
-        spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         spark_session.sql(f"USE SCHEMA {schema}")
         print(f"Schema {catalog}.{schema} configurado com sucesso")
         return True
@@ -159,17 +157,20 @@ def extract_from_bronze(catalog, table_name_bronze):
         table_name_bronze (str): Nome da tabela na Bronze
         
     Returns:
-        DataFrame: DataFrame com dados da Bronze ou None se erro
+        DataFrame: DataFrame com dados da Bronze
     """
     spark_session = get_spark_session()
+    bronze_table = f"{catalog}.bronze.{table_name_bronze}"
     try:
-        bronze_table = f"{catalog}.bronze.{table_name_bronze}"
         df = spark_session.table(bronze_table)
-        print(f"Extraídos {df.count()} registros da Bronze: {bronze_table}")
+        count = df.count()
+        print(f"Extraídos {count} registros da Bronze: {bronze_table}")
+        if count == 0:
+            raise ValueError(f"Tabela Bronze vazia: {bronze_table}")
         return df
     except Exception as e:
         print(f"Erro no EXTRACT da Bronze: {e}")
-        return None
+        raise
 
 # ============================================================================
 # FUNÇÕES DE TRANSFORMAÇÃO COMUM
@@ -187,7 +188,7 @@ def apply_standard_cleaning(df, name_columns=None, desc_columns=None, numeric_co
     Returns:
         DataFrame: DataFrame com limpeza aplicada
     """
-    if not df:
+    if df is None:
         return None
     
     # Padronização de nomes (Title Case)
@@ -225,7 +226,7 @@ def apply_temporal_filter(df, months_back=60):
     Returns:
         DataFrame: DataFrame filtrado
     """
-    if not df:
+    if df is None:
         return None
     
     return df.filter(col("DT_INGESTION") >= add_months(current_date(), -months_back))
@@ -262,7 +263,7 @@ def add_partition_columns(df, year_col="RELEASE_YEAR", month_col="RELEASE_MONTH"
     Returns:
         DataFrame: DataFrame com colunas de particionamento
     """
-    if not df:
+    if df is None:
         return None
     
     df = df.withColumn("ANO_PART", col(year_col))
@@ -302,7 +303,10 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
     s3_silver_path é aceito mas ignorado — storage gerenciado pelo UC.
     """
     full_table_name = f"{catalog}.{schema}.{table_name}"
-    
+
+    if df_final is None:
+        raise ValueError(f"Nenhum dado disponível para materializar {full_table_name}")
+
     print(f"Salvando tabela gerenciada UC: {full_table_name}")
     print(f"Qtd linhas df_final: {df_final.count()}")
 
@@ -339,20 +343,6 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
             df_final.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(full_table_name)
 
     print(f"# Dados salvos com sucesso: {full_table_name}")
-    # --- REMOVED old UC CREATE TABLE block (managed table created by saveAsTable above)
-    if False:  # kept for reference
-        count_depois = 0
-        print(f"Linhas antes do merge: {count_antes}")
-            print(f"Linhas depois do merge: {count_depois}")
-            print(f"Linhas adicionadas: {count_depois - count_antes}")
-        else:
-            print("Tabela Delta já existe mas sem key_column. Fazendo overwrite.")
-            df_final.write.format("delta").mode("overwrite").save(delta_path)
-    
-    # Criação/atualização da tabela no Unity Catalog
-    try:
-        pass  # schema e tabela gerenciados pelo saveAsTable acima
-
     print("Dados salvos com sucesso na camada Silver!")
 
 # ============================================================================
@@ -370,7 +360,7 @@ def transform_reference_table(df, name_column, source_column="NME_SOURCE"):
     Returns:
         DataFrame: DataFrame transformado
     """
-    if not df:
+    if df is None:
         return None
     
     print("Iniciando transformações para tabela de referência...")
@@ -406,7 +396,7 @@ def transform_fact_table(df, name_columns=None, desc_columns=None, numeric_colum
     Returns:
         DataFrame: DataFrame transformado
     """
-    if not df:
+    if df is None:
         return None
     
     print("Iniciando transformações para tabela de fato...")

@@ -98,7 +98,7 @@ def get_secret(secret_name, default_value=None):
 
 def setup_unity_catalog(catalog, schema):
     """
-    Configura Unity Catalog criando catalog e schema se necessário
+    Configura Unity Catalog existente para uso na camada Gold
     
     Args:
         catalog (str): Nome do catalog
@@ -109,9 +109,7 @@ def setup_unity_catalog(catalog, schema):
     """
     spark_session = get_spark_session()
     try:
-        spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
         spark_session.sql(f"USE CATALOG {catalog}")
-        spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         spark_session.sql(f"USE SCHEMA {schema}")
         print(f"Schema {catalog}.{schema} configurado com sucesso")
         return True
@@ -158,15 +156,25 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
     full_table_name = f"{catalog}.{schema}.{table_name}"
     spark_session = get_spark_session()
 
+    if df_final is None:
+        raise ValueError(f"Nenhum dado disponível para materializar {full_table_name}")
+
     print(f"Salvando tabela gerenciada UC: {full_table_name}")
     print(f"Qtd linhas df_final: {df_final.count()}")
 
     try:
+        table_exists = spark_session.catalog.tableExists(full_table_name)
         writer = df_final.write.format("delta") \
-                        .mode(mode) \
+                        .mode("overwrite") \
                         .option("overwriteSchema", "true")
         if partition_cols:
             writer = writer.partitionBy(*partition_cols)
+
+        if not table_exists:
+            print(f"Tabela não existe. Criando {full_table_name}...")
+        else:
+            print(f"Tabela já existe. Atualizando {full_table_name} em Delta...")
+
         writer.saveAsTable(full_table_name)
         print(f"Dados salvos com sucesso: {full_table_name}")
     except Exception as e:
@@ -209,12 +217,17 @@ def load_silver_tables(config, table_list=None):
     
     # Carregar tabelas com aliases
     dataframes = {}
+    missing_tables = []
     for alias, table_name in tables_to_load.items():
         try:
             dataframes[alias] = spark_session.table(table_name).alias(alias)
             print(f"Tabela carregada: {alias} -> {table_name}")
         except Exception as e:
             print(f"Erro ao carregar {table_name}: {e}")
+            missing_tables.append(table_name)
+
+    if missing_tables:
+        raise Exception(f"Tabelas Silver obrigatórias não materializadas: {missing_tables}")
             
     return dataframes
 
