@@ -16,10 +16,6 @@ on:
       - '.github/workflows/**'
       - '.github/scripts/**'
 
-env:
-  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-
 jobs:
   # ============================================================================
   # VALIDAÇÕES DURANTE PR
@@ -316,10 +312,14 @@ jobs:
     environment: Databricks
     permissions:
       contents: read
-    
+
     # Só executa quando a PR é aprovada e mergeada na main
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
+
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
