@@ -41,8 +41,8 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install pyyaml jsonschema databricks-cli
-        
+        pip install pyyaml jsonschema databricks-cli ruff pytest
+
     - name: Validate YAML syntax
       run: |
         python -c "import yaml; yaml.safe_load(open('.github/DAGs/magic.yml', 'r'))"
@@ -233,7 +233,15 @@ jobs:
                     
         print('✅ All notebook syntax is valid')
         "
-        
+
+    - name: Lint notebook Python cells (AUD-10)
+      run: |
+        python .github/scripts/lint_notebooks.py
+
+    - name: Run unit tests (AUD-11)
+      run: |
+        python -m pytest src -q
+
     - name: Generate validation report
       run: |
         python -c "
@@ -290,7 +298,9 @@ jobs:
           - ✅ Configuração do cluster válida
           - ✅ Configuração Git válida
           - ✅ Sintaxe dos notebooks válida
-          
+          - ✅ Lint estático das células Python (referências indefinidas)
+          - ✅ Suíte de testes unitários (pytest)
+
           🚀 **Pipeline pronto para deploy!**
           
           ---
