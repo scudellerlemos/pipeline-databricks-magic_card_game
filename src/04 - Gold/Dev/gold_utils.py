@@ -177,11 +177,12 @@ def create_manual_config(catalog_name, s3_bucket, s3_gold_prefix=None):
 # ============================================================================
 # FUNÇÕES DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
-def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gold_path, 
-                                  partition_cols=None, mode="overwrite"):
+def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gold_path,
+                                  partition_cols=None, mode="overwrite", key_column=None):
     """
     Carrega dados na camada Gold com suporte a Unity Catalog e Delta Lake
-    
+    Suporta merge incremental (upsert) se key_column for especificado
+
     Args:
         df_final (DataFrame): DataFrame final para salvar
         catalog (str): Nome do catalog Unity
@@ -189,38 +190,80 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
         table_name (str): Nome da tabela
         s3_gold_path (str): Caminho S3 base para Gold
         partition_cols (list, optional): Colunas para particionamento
-        mode (str): Modo de escrita (overwrite, append)
+        mode (str): Modo de escrita quando key_column não é usado (overwrite, append)
+        key_column (str or list, optional): Coluna(s) chave para merge incremental.
+            Quando informado e a tabela já existe, faz upsert em vez de overwrite/append,
+            evitando acúmulo de linhas duplicadas em tabelas cumulativas (ex.: alertas).
     """
     delta_path = f"s3://{s3_gold_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
-    
+
     print(f"Salvando dados em: {delta_path}")
     print(f"Qtd linhas df_final: {df_final.count()}")
-    
+
     try:
-        # Configurar writer
-        writer = df_final.write.format("delta") \
-                        .mode(mode) \
-                        .option("overwriteSchema", "true")
-        
-        # Adicionar particionamento se especificado
-        if partition_cols:
-            writer = writer.partitionBy(*partition_cols)
-            
-        # Salvar dados
-        writer.save(delta_path)
-        
-        # Criar/atualizar tabela Unity Catalog
         spark_session = get_spark_session()
+
+        if key_column:
+            keys = [key_column] if isinstance(key_column, str) else list(key_column)
+            total_antes_dedup = df_final.count()
+            df_final = df_final.dropDuplicates(keys)
+            total_depois_dedup = df_final.count()
+            print(f"Removidas {total_antes_dedup - total_depois_dedup} duplicatas baseadas em {keys}")
+
+            if DeltaTable.isDeltaTable(spark_session, delta_path):
+                print(f"Tabela Delta já existe. Executando merge incremental por {keys}.")
+                delta_table = DeltaTable.forPath(spark_session, delta_path)
+                count_antes = delta_table.toDF().count()
+
+                update_cols = [c for c in df_final.columns if c not in keys]
+                set_expr = {c: f"novo.{c}" for c in update_cols}
+                # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
+                # match e a linha seria reinserida a cada execução (reintroduzindo o
+                # acúmulo de duplicatas que este merge existe para evitar - AUD-03).
+                match_condition = " AND ".join(f"gold.{k} <=> novo.{k}" for k in keys)
+
+                delta_table.alias("gold").merge(
+                    df_final.alias("novo"), match_condition
+                ).whenMatchedUpdate(set=set_expr) \
+                 .whenNotMatchedInsertAll() \
+                 .execute()
+
+                count_depois = delta_table.toDF().count()
+                print(f"Linhas antes do merge: {count_antes}")
+                print(f"Linhas depois do merge: {count_depois}")
+                print(f"Linhas adicionadas: {count_depois - count_antes}")
+            else:
+                print("Tabela Delta não existe. Salvando com overwrite inicial.")
+                writer = df_final.write.format("delta") \
+                                .mode("overwrite") \
+                                .option("overwriteSchema", "true")
+                if partition_cols:
+                    writer = writer.partitionBy(*partition_cols)
+                writer.save(delta_path)
+        else:
+            # Configurar writer
+            writer = df_final.write.format("delta") \
+                            .mode(mode) \
+                            .option("overwriteSchema", "true")
+
+            # Adicionar particionamento se especificado
+            if partition_cols:
+                writer = writer.partitionBy(*partition_cols)
+
+            # Salvar dados
+            writer.save(delta_path)
+
+        # Criar/atualizar tabela Unity Catalog
         try:
             spark_session.sql(f"SELECT 1 FROM {full_table_name} LIMIT 1")
             print(f"Tabela Unity Catalog '{full_table_name}' já existe")
         except:
             spark_session.sql(f"CREATE TABLE {full_table_name} USING DELTA LOCATION '{delta_path}'")
             print(f"Tabela Unity Catalog criada: {full_table_name}")
-        
+
         print("Dados salvos com sucesso!")
-        
+
     except Exception as e:
         print(f"Erro ao salvar dados: {e}")
         raise
@@ -344,7 +387,7 @@ class GoldTableProcessor:
         """Carrega dados Silver necessários"""
         return load_silver_tables(self.config, tables)
     
-    def save_gold_table(self, df, partition_cols=None):
+    def save_gold_table(self, df, partition_cols=None, key_column=None):
         """Salva tabela na Gold com configurações padrão"""
         load_to_gold_unity_incremental(
             df_final=df,
@@ -352,7 +395,8 @@ class GoldTableProcessor:
             schema=self.config['schema_gold'],
             table_name=self.table_name,
             s3_gold_path=self.s3_gold_path,
-            partition_cols=partition_cols
+            partition_cols=partition_cols,
+            key_column=key_column
         )
         
         print(f"✅ {self.table_name} criada com sucesso!")
