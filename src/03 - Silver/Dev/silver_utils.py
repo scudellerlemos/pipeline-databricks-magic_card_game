@@ -243,12 +243,12 @@ def delta_table_exists_and_schema_ok(spark, delta_path, df_final):
     except Exception:
         return False, None
 
-def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_silver_path, 
-                                   partition_cols=None, key_column=None):
+def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_silver_path,
+                                   partition_cols=None, key_column=None, order_by_col=None):
     """
     Carrega dados na camada Silver com suporte a Unity Catalog e Delta Lake
     Suporta merge incremental se key_column for especificado
-    
+
     Args:
         df_final (DataFrame): DataFrame final para salvar
         catalog (str): Nome do catalog Unity
@@ -257,6 +257,11 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
         s3_silver_path (str): Caminho S3 base para Silver
         partition_cols (list, optional): Colunas para particionamento
         key_column (str or list, optional): Coluna(s) chave para merge incremental
+        order_by_col (str, optional): Coluna de recência (ex.: timestamp de
+            atualização) usada para escolher deterministicamente qual linha
+            sobrevive quando o lote tem mais de uma linha para a mesma
+            key_column (AUD-09). Sem ela, duplicatas de chave no lote ainda
+            são resolvidas de forma não-determinística, mas passam a ser logadas.
     """
     delta_path = f"s3://{s3_silver_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
@@ -288,10 +293,37 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
             key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
             print(f"Tabela Delta já existe. Executando merge incremental por {key_cols}.")
             count_antes = delta_table.toDF().count()
-            df_final = df_final.dropDuplicates(key_cols)
+
+            # ponytail: 2 counts extras so ao usar dedup, custam 2x scan do lote; ok no
+            # volume atual, revisitar se o lote crescer o suficiente pra doer.
+            total_antes_dedup = df_final.count()
+            if order_by_col and order_by_col in df_final.columns:
+                # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
+                # adicionar tie-break secundário (ex.: coluna de ingestão) se isso doer.
+                # ponytail: nulls last é proposital - order_by_col nulo (ex.: parse de
+                # timestamp que falhou) nunca deve vencer um valor não-nulo mais antigo
+                # por acidente; se isso ocorrer na prática, é sinal de dado ruim upstream.
+                window = Window.partitionBy(*key_cols).orderBy(col(order_by_col).desc_nulls_last())
+                df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
+                                    .filter(col("_rn_dedup") == 1) \
+                                    .drop("_rn_dedup")
+            else:
+                df_final = df_final.dropDuplicates(key_cols)
+            total_depois_dedup = df_final.count()
+            if total_antes_dedup != total_depois_dedup:
+                if order_by_col and order_by_col in df_final.columns:
+                    print(f"⚠️ {total_antes_dedup - total_depois_dedup} duplicata(s) de chave {key_cols} "
+                          f"no lote; mantida a linha mais recente por {order_by_col}.")
+                else:
+                    print(f"⚠️ {total_antes_dedup - total_depois_dedup} duplicata(s) de chave {key_cols} "
+                          f"no lote resolvida(s) de forma não-determinística (informe order_by_col para "
+                          f"escolher a linha mais recente).")
+
             update_cols = [c for c in df_final.columns if c not in key_cols]
             set_expr = {col: f"novo.{col}" for col in update_cols}
-            merge_condition = " AND ".join(f"silver.{k} = novo.{k}" for k in key_cols)
+            # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
+            # match e a linha seria reinserida a cada execução (duplicando o dado).
+            merge_condition = " AND ".join(f"silver.{k} <=> novo.{k}" for k in key_cols)
 
             merge_result = delta_table.alias("silver").merge(
                 df_final.alias("novo"),
@@ -430,7 +462,7 @@ class SilverTableProcessor:
             return transform_function(df, **kwargs)
         return df
     
-    def save_silver_table(self, df, partition_cols=None, key_column=None):
+    def save_silver_table(self, df, partition_cols=None, key_column=None, order_by_col=None):
         """Salva tabela na Silver com configurações padrão"""
         load_to_silver_unity_incremental(
             df_final=df,
@@ -439,7 +471,8 @@ class SilverTableProcessor:
             table_name=self.table_name,
             s3_silver_path=self.s3_silver_path,
             partition_cols=partition_cols,
-            key_column=key_column
+            key_column=key_column,
+            order_by_col=order_by_col
         )
         
         print(f"✅ {self.table_name} criada com sucesso!")
