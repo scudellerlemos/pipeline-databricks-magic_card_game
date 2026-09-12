@@ -294,28 +294,32 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
             print(f"Tabela Delta já existe. Executando merge incremental por {key_cols}.")
             count_antes = delta_table.toDF().count()
 
-            # ponytail: 2 counts extras so ao usar dedup, custam 2x scan do lote; ok no
-            # volume atual, revisitar se o lote crescer o suficiente pra doer.
-            total_antes_dedup = df_final.count()
+            # 1 scan so (groupBy no df original) em vez de 2 counts antes/depois do dedup.
+            dup_groups = df_final.groupBy(*key_cols).count().filter(col("count") > 1)
+            total_duplicadas = dup_groups.agg(sum(col("count") - 1)).collect()[0][0] or 0
             if order_by_col and order_by_col in df_final.columns:
-                # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
-                # adicionar tie-break secundário (ex.: coluna de ingestão) se isso doer.
                 # ponytail: nulls last é proposital - order_by_col nulo (ex.: parse de
                 # timestamp que falhou) nunca deve vencer um valor não-nulo mais antigo
                 # por acidente; se isso ocorrer na prática, é sinal de dado ruim upstream.
-                window = Window.partitionBy(*key_cols).orderBy(col(order_by_col).desc_nulls_last())
+                # tie-break: hash das colunas restantes garante escolha determinística mesmo
+                # com order_by_col empatado; ponytail: colisão de hash é possível (não-única),
+                # revisitar com um tie-break natural (ex. coluna de ingestão) se isso doer.
+                tie_break_cols = [c for c in df_final.columns if c not in key_cols and c != order_by_col]
+                order_cols = [col(order_by_col).desc_nulls_last()]
+                if tie_break_cols:
+                    order_cols.append(hash(*tie_break_cols).desc())
+                window = Window.partitionBy(*key_cols).orderBy(*order_cols)
                 df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
                                     .filter(col("_rn_dedup") == 1) \
                                     .drop("_rn_dedup")
             else:
                 df_final = df_final.dropDuplicates(key_cols)
-            total_depois_dedup = df_final.count()
-            if total_antes_dedup != total_depois_dedup:
+            if total_duplicadas > 0:
                 if order_by_col and order_by_col in df_final.columns:
-                    print(f"⚠️ {total_antes_dedup - total_depois_dedup} duplicata(s) de chave {key_cols} "
+                    print(f"⚠️ {total_duplicadas} duplicata(s) de chave {key_cols} "
                           f"no lote; mantida a linha mais recente por {order_by_col}.")
                 else:
-                    print(f"⚠️ {total_antes_dedup - total_depois_dedup} duplicata(s) de chave {key_cols} "
+                    print(f"⚠️ {total_duplicadas} duplicata(s) de chave {key_cols} "
                           f"no lote resolvida(s) de forma não-determinística (informe order_by_col para "
                           f"escolher a linha mais recente).")
 
