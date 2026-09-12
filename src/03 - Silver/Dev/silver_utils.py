@@ -374,8 +374,12 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
             print(f"Tabela Delta já existe. Executando merge incremental por {key_cols}.")
             count_antes = delta_table.toDF().count()
 
+            # ponytail: 2 counts extras so ao usar dedup, custam 2x scan do lote; ok no
+            # volume atual, revisitar se o lote crescer o suficiente pra doer.
             total_antes_dedup = df_final.count()
             if order_by_col and order_by_col in df_final.columns:
+                # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
+                # adicionar tie-break secundário (ex.: coluna de ingestão) se isso doer.
                 window = Window.partitionBy(*key_cols).orderBy(col(order_by_col).desc())
                 df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
                                     .filter(col("_rn_dedup") == 1) \
