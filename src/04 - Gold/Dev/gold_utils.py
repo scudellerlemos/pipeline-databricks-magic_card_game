@@ -320,7 +320,7 @@ class GoldTableProcessor:
         """Carrega dados Silver necessários"""
         return load_silver_tables(self.config, tables)
     
-    def save_gold_table(self, df, partition_cols=None, key_column=None):
+    def save_gold_table(self, df, partition_cols=None, key_column=None, order_by_col=None):
         """Salva tabela na Gold com configurações padrão"""
         load_to_gold_unity_incremental(
             df_final=df,
@@ -329,7 +329,8 @@ class GoldTableProcessor:
             table_name=self.table_name,
             s3_gold_path=self.s3_gold_path,
             partition_cols=partition_cols,
-            key_column=key_column
+            key_column=key_column,
+            order_by_col=order_by_col
         )
         
         print(f"✅ {self.table_name} criada com sucesso!")
