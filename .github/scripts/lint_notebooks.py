@@ -45,9 +45,10 @@ def resolve_run_target(notebook_path, ref):
 def substitute_star_imports(text):
     out = []
     for line in text.splitlines():
+        indent = line[: len(line) - len(line.lstrip())]
         star_match = STAR_IMPORT_RE.match(line.lstrip())
         stub = STAR_IMPORT_STUBS.get(star_match.group(1)) if star_match else None
-        out.append(stub.rstrip("\n") if stub else line)
+        out.append(indent + stub.rstrip("\n") if stub else line)
     return "\n".join(out)
 
 

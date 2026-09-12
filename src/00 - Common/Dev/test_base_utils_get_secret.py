@@ -36,10 +36,22 @@ def test_raises_when_no_default_available():
         raise AssertionError("expected Exception for secret with no default")
 
 
+def test_s3_bucket_has_no_silent_fallback():
+    # s3_bucket é o destino real de leitura/escrita de todas as camadas - não
+    # pode cair silenciosamente num bucket placeholder quando o secret falha.
+    try:
+        base_utils.get_secret("s3_bucket")
+    except Exception as e:
+        assert "s3_bucket" in str(e)
+    else:
+        raise AssertionError("expected Exception for s3_bucket with no default")
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_explicit_default_wins()
     test_falls_back_to_common_safe_default()
     test_falls_back_to_layer_specific_default()
     test_raises_when_no_default_available()
+    test_s3_bucket_has_no_silent_fallback()
     print("OK")

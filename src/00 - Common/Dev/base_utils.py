@@ -74,9 +74,11 @@ def get_secret(secret_name, default_value=None, extra_safe_defaults=None):
             print(f"Secret '{secret_name}' não encontrado, usando valor padrão: {default_value}")
             return default_value
 
+        # ponytail: s3_bucket não entra em safe_defaults de propósito - é o
+        # destino real de escrita/leitura de todas as camadas, então preferimos
+        # falhar alto a gravar silenciosamente num bucket placeholder inexistente.
         safe_defaults = {
-            'catalog_name': 'magic_the_gathering',
-            's3_bucket': 's3://meu-bucket-default'
+            'catalog_name': 'magic_the_gathering'
         }
         safe_defaults.update(extra_safe_defaults or {})
 

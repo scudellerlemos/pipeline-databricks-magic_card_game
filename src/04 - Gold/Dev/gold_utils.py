@@ -135,7 +135,10 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
             if order_by_col and order_by_col in df_final.columns:
                 # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
                 # adicionar tie-break secundário (ex.: coluna de ingestão) se isso doer.
-                window = Window.partitionBy(*keys).orderBy(col(order_by_col).desc())
+                # ponytail: nulls last é proposital - order_by_col nulo (ex.: parse de
+                # timestamp que falhou) nunca deve vencer um valor não-nulo mais antigo
+                # por acidente; se isso ocorrer na prática, é sinal de dado ruim upstream.
+                window = Window.partitionBy(*keys).orderBy(col(order_by_col).desc_nulls_last())
                 df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
                                     .filter(col("_rn_dedup") == 1) \
                                     .drop("_rn_dedup")
