@@ -318,7 +318,9 @@ def load_to_silver_unity_incremental(df_final, catalog, schema, table_name, s3_s
 
             update_cols = [c for c in df_final.columns if c not in key_cols]
             set_expr = {col: f"novo.{col}" for col in update_cols}
-            merge_condition = " AND ".join(f"silver.{k} = novo.{k}" for k in key_cols)
+            # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
+            # match e a linha seria reinserida a cada execução (duplicando o dado).
+            merge_condition = " AND ".join(f"silver.{k} <=> novo.{k}" for k in key_cols)
 
             merge_result = delta_table.alias("silver").merge(
                 df_final.alias("novo"),

@@ -98,7 +98,8 @@ def create_manual_config(catalog_name, s3_bucket, s3_gold_prefix=None):
 # FUNÇÕES DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
 def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gold_path,
-                                  partition_cols=None, mode="overwrite", key_column=None):
+                                  partition_cols=None, mode="overwrite", key_column=None,
+                                  order_by_col=None):
     """
     Carrega dados na camada Gold com suporte a Unity Catalog e Delta Lake
     Suporta merge incremental (upsert) se key_column for especificado
@@ -114,6 +115,10 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
         key_column (str or list, optional): Coluna(s) chave para merge incremental.
             Quando informado e a tabela já existe, faz upsert em vez de overwrite/append,
             evitando acúmulo de linhas duplicadas em tabelas cumulativas (ex.: alertas).
+        order_by_col (str, optional): Coluna de recência usada para escolher
+            deterministicamente qual linha sobrevive quando o lote tem mais de
+            uma linha para a mesma key_column (AUD-09). Sem ela, duplicatas de
+            chave no lote são resolvidas de forma não-determinística.
     """
     delta_path = f"s3://{s3_gold_path}/{table_name}"
     full_table_name = f"{catalog}.{schema}.{table_name}"
@@ -127,7 +132,15 @@ def load_to_gold_unity_incremental(df_final, catalog, schema, table_name, s3_gol
         if key_column:
             keys = [key_column] if isinstance(key_column, str) else list(key_column)
             total_antes_dedup = df_final.count()
-            df_final = df_final.dropDuplicates(keys)
+            if order_by_col and order_by_col in df_final.columns:
+                # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
+                # adicionar tie-break secundário (ex.: coluna de ingestão) se isso doer.
+                window = Window.partitionBy(*keys).orderBy(col(order_by_col).desc())
+                df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
+                                    .filter(col("_rn_dedup") == 1) \
+                                    .drop("_rn_dedup")
+            else:
+                df_final = df_final.dropDuplicates(keys)
             total_depois_dedup = df_final.count()
             print(f"Removidas {total_antes_dedup - total_depois_dedup} duplicatas baseadas em {keys}")
 
