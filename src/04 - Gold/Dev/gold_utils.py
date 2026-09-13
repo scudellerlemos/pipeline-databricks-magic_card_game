@@ -25,7 +25,7 @@ dfs = processor.load_silver_data(['cards', 'prices'])
 processor.save_gold_table(df_final, partition_cols=["DATA_REF"])
 """
 
-from pyspark.sql.functions import col, row_number
+from pyspark.sql.functions import col, hash, row_number
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
@@ -120,11 +120,17 @@ def save_to_gold(df_final, catalog, schema, table_name, s3_gold_path,
         key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
 
         if order_by_col and order_by_col in df_final.columns:
-            # ponytail: empates exatos em order_by_col ainda saem não-determinísticos;
-            # adicionar tie-break secundário se isso doer.
             # nulls last é proposital - order_by_col nulo nunca deve vencer um valor
             # não-nulo mais antigo por acidente.
-            window = Window.partitionBy(*key_cols).orderBy(col(order_by_col).desc_nulls_last())
+            # tie-break: hash das colunas restantes garante escolha determinística mesmo
+            # com order_by_col empatado (AUD-19, mesmo padrão do save_to_silver); ponytail:
+            # colisão de hash é possível (não-única), revisitar com um tie-break natural
+            # (ex. coluna de ingestão) se isso doer.
+            tie_break_cols = [c for c in df_final.columns if c not in key_cols and c != order_by_col]
+            order_cols = [col(order_by_col).desc_nulls_last()]
+            if tie_break_cols:
+                order_cols.append(hash(*tie_break_cols).desc())
+            window = Window.partitionBy(*key_cols).orderBy(*order_cols)
             df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
                                 .filter(col("_rn_dedup") == 1).drop("_rn_dedup")
         else:
