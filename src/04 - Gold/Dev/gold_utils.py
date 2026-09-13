@@ -136,7 +136,13 @@ def save_to_gold(df_final, catalog, schema, table_name, s3_gold_path,
         # de duplicatas que este merge existe para evitar - AUD-03).
         merge_condition = " AND ".join(f"gold.{k} <=> novo.{k}" for k in key_cols)
 
-        spark_session.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+        # ponytail: conf de autoMerge é escopo de sessão (não por statement) - salvar e
+        # restaurar o valor anterior em vez de sempre limpar evita desabilitar autoMerge
+        # de um MERGE concorrente de outro job na mesma sessão/cluster; isolar de verdade
+        # exigiria sessão Spark dedicada por job, revisitar se isso doer.
+        autoMerge_key = "spark.databricks.delta.schema.autoMerge.enabled"
+        autoMerge_prev = spark_session.conf.get(autoMerge_key, None)
+        spark_session.conf.set(autoMerge_key, "true")
         try:
             merge_result = spark_session.sql(f"""
                 MERGE INTO delta.`{delta_path}` AS gold
@@ -146,13 +152,17 @@ def save_to_gold(df_final, catalog, schema, table_name, s3_gold_path,
                 WHEN NOT MATCHED THEN INSERT *
             """)
         finally:
-            spark_session.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+            if autoMerge_prev is None:
+                spark_session.conf.unset(autoMerge_key)
+            else:
+                spark_session.conf.set(autoMerge_key, autoMerge_prev)
 
         print(f"Merge em {full_table_name}: {merge_result.collect()[0].asDict()}")
 
     else:
         print("Tabela Delta já existe mas sem key_column. Fazendo overwrite.")
-        df_final.write.format("delta").mode("overwrite").save(delta_path)
+        df_final.write.format("delta").mode("overwrite") \
+            .option("overwriteSchema", "true").save(delta_path)
 
     spark_session.sql(
         f"CREATE TABLE IF NOT EXISTS {full_table_name} USING DELTA LOCATION '{delta_path}'"

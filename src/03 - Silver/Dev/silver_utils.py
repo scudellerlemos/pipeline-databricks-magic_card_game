@@ -135,6 +135,15 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
     elif key_column:
         key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
 
+        # comparação de schema é metadado (sem scan de dados) - só visibilidade;
+        # autoMerge (abaixo) resolve colunas novas sozinho, remoções/mudanças de tipo
+        # podem falhar o MERGE e aparecem no log em vez de silenciosas
+        current_cols = set(f.name for f in DeltaTable.forPath(spark_session, delta_path).toDF().schema.fields)
+        new_cols = set(df_final.columns)
+        if current_cols != new_cols:
+            print(f"⚠️ Schema de {full_table_name} mudou: colunas removidas={sorted(current_cols - new_cols)}, "
+                  f"colunas novas={sorted(new_cols - current_cols)}.")
+
         if order_by_col and order_by_col in df_final.columns:
             # nulls last é proposital - order_by_col nulo nunca deve vencer um valor
             # não-nulo mais antigo por acidente.
@@ -156,7 +165,13 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
         # match e a linha seria reinserida a cada execução (duplicando o dado).
         merge_condition = " AND ".join(f"silver.{k} <=> novo.{k}" for k in key_cols)
 
-        spark_session.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+        # ponytail: conf de autoMerge é escopo de sessão (não por statement) - salvar e
+        # restaurar o valor anterior em vez de sempre limpar evita desabilitar autoMerge
+        # de um MERGE concorrente de outro job na mesma sessão/cluster; isolar de verdade
+        # exigiria sessão Spark dedicada por job, revisitar se isso doer.
+        autoMerge_key = "spark.databricks.delta.schema.autoMerge.enabled"
+        autoMerge_prev = spark_session.conf.get(autoMerge_key, None)
+        spark_session.conf.set(autoMerge_key, "true")
         try:
             merge_result = spark_session.sql(f"""
                 MERGE INTO delta.`{delta_path}` AS silver
@@ -166,7 +181,10 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
                 WHEN NOT MATCHED THEN INSERT *
             """)
         finally:
-            spark_session.conf.unset("spark.databricks.delta.schema.autoMerge.enabled")
+            if autoMerge_prev is None:
+                spark_session.conf.unset(autoMerge_key)
+            else:
+                spark_session.conf.set(autoMerge_key, autoMerge_prev)
 
         print(f"Merge em {full_table_name}: {merge_result.collect()[0].asDict()}")
 
