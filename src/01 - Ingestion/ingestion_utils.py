@@ -20,6 +20,20 @@ import requests
 from pyspark.sql.functions import col, lit, current_timestamp, year, month, when
 from pyspark.sql.types import StructType, StructField, StringType
 
+# ponytail: em Serverless + Git source, %run às vezes executa este arquivo num
+# namespace que não herda o `dbutils` implícito do notebook. Puxa do IPython
+# quando isso acontece; fora de um notebook Databricks (ex.: pytest local),
+# get_ipython() é None e o bloco é ignorado, preservando o NameError esperado
+# pelos testes locais (ver test_base_utils_get_secret.py).
+try:
+    dbutils
+except NameError:
+    try:
+        import IPython
+        dbutils = IPython.get_ipython().user_ns["dbutils"]
+    except Exception:
+        pass
+
 
 def get_secret(secret_name, default_value=None):
     try:
