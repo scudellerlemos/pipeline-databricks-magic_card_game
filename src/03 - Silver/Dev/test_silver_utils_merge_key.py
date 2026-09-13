@@ -39,8 +39,26 @@ def test_composite_key_cardprices_preserves_history_column():
     assert condition == "silver.ID_CARD = novo.ID_CARD AND silver.DT_INGESTION = novo.DT_INGESTION"
 
 
+def build_tie_break_cols(columns, key_cols, order_by_col):
+    return [c for c in columns if c not in key_cols and c != order_by_col]
+
+
+def test_tie_break_cols_excludes_key_and_order_by():
+    cols = build_tie_break_cols(
+        ["NME_CARD", "COD_SET", "DESC_CARD", "DT_INGESTION"], ["NME_CARD", "COD_SET"], "DT_INGESTION"
+    )
+    assert cols == ["DESC_CARD"]
+
+
+def test_tie_break_cols_empty_when_key_and_order_by_cover_all():
+    cols = build_tie_break_cols(["ID_CARD", "DT_INGESTION"], ["ID_CARD"], "DT_INGESTION")
+    assert cols == []
+
+
 if __name__ == "__main__":
     test_single_key_column_string()
     test_composite_key_cards()
     test_composite_key_cardprices_preserves_history_column()
+    test_tie_break_cols_excludes_key_and_order_by()
+    test_tie_break_cols_empty_when_key_and_order_by_cover_all()
     print("OK")
