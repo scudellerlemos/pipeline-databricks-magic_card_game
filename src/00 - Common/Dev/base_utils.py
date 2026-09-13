@@ -52,8 +52,14 @@ def setup_unity_catalog(catalog, schema):
     """
     spark_session = get_spark_session()
     try:
-        spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
-        spark_session.sql(f"USE CATALOG {catalog}")
+        # ponytail: tenta USE primeiro - este metastore não tem storage root
+        # default, então CREATE CATALOG sem MANAGED LOCATION falha mesmo com
+        # IF NOT EXISTS quando o catalog já existe (caso normal aqui).
+        try:
+            spark_session.sql(f"USE CATALOG {catalog}")
+        except Exception:
+            spark_session.sql(f"CREATE CATALOG IF NOT EXISTS {catalog}")
+            spark_session.sql(f"USE CATALOG {catalog}")
         spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         spark_session.sql(f"USE SCHEMA {schema}")
         print(f"Schema {catalog}.{schema} configurado com sucesso")
