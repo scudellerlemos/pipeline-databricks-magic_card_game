@@ -24,35 +24,39 @@ Transformar dados enriquecidos da Silver em análises executivas, métricas de p
 
 ## 🔄 Processo AL (Analyze & Load)
 
-### **Analyze - Análises Executivas e Métricas**
+### **Analyze - Análises Executivas e Métricas (SQL)**
+As regras de negócio são escritas em SQL puro, executadas via `spark.sql()` sobre temp views (sem UDFs Python):
 ```python
-# Exemplo de análise executiva típica
-df_analise = df_silver.groupBy("DATA_REF", "NME_SET", "NME_CARD_TYPE", "NME_RARITY") \
-    .agg(
-        sum("VLR_USD").cast("decimal(10,2)").alias("VALOR_TOTAL_MERCADO"),
-        countDistinct("NME_CARD").cast("int").alias("QTD_CARTAS_ATIVAS"),
-        avg("VLR_USD").cast("decimal(10,2)").alias("VALOR_MEDIO_CARTA"),
-        expr("percentile_approx(VLR_USD, 0.5)").cast("decimal(10,2)").alias("TICKET_MEDIANA")
-    )
+spark.sql("""
+    CREATE OR REPLACE TEMP VIEW _mercado_gold AS
+    SELECT
+        DATA_REF, NME_SET, NME_CARD_TYPE, NME_RARITY,
+        cast(sum(VLR_USD) AS decimal(10,2)) AS VALOR_TOTAL_MERCADO,
+        cast(count(DISTINCT NME_CARD) AS int) AS QTD_CARTAS_ATIVAS,
+        cast(avg(VLR_USD) AS decimal(10,2)) AS VALOR_MEDIO_CARTA,
+        cast(percentile_approx(VLR_USD, 0.5) AS decimal(10,2)) AS TICKET_MEDIANA
+    FROM _mercado_join
+    GROUP BY DATA_REF, NME_SET, NME_CARD_TYPE, NME_RARITY
+""")
 
-# Cálculo de market share
-window_set = Window.partitionBy("DATA_REF")
-df_analise = df_analise.withColumn(
-    "MARKET_SHARE_SET",
-    (col("VALOR_TOTAL_MERCADO") / sum("VALOR_TOTAL_MERCADO").over(window_set)).cast("decimal(10,4)")
-)
+# Cálculo de market share via window function em SQL
+spark.sql("""
+    SELECT *,
+        cast(VALOR_TOTAL_MERCADO / sum(VALOR_TOTAL_MERCADO) OVER (PARTITION BY DATA_REF) AS decimal(10,4)) AS MARKET_SHARE_SET
+    FROM _mercado_gold
+""")
 ```
 
 ### **Load - Carregamento na Gold**
+O carregamento incremental usa `MERGE INTO` em SQL puro (não o builder `DeltaTable.merge()`):
 ```python
-def load_to_gold_unity_incremental(df, table_name):
-    # Merge incremental com Delta Lake
-    delta_table.alias("gold").merge(
-        df.alias("novo"),
-        "gold.DATA_REF = novo.DATA_REF AND gold.NME_CARD = novo.NME_CARD"
-    ).whenMatchedUpdateAll() \
-     .whenNotMatchedInsertAll() \
-     .execute()
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS target
+    USING _dedup AS source
+    ON target.DATA_REF = source.DATA_REF AND target.NME_CARD = source.NME_CARD
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
 ```
 
 ## 📁 Estrutura dos Notebooks
@@ -78,17 +82,6 @@ def load_to_gold_unity_incremental(df, table_name):
   - Indicadores de investimento
   - Particionamento por período e set
 - **Tipo**: 📈 Investment KPIs (métricas financeiras)
-
-### ⏰ `TB_ANALISE_TEMPORAL.ipynb`
-- **Fonte**: Dados de cartas e preços da Silver
-- **Chave**: `DATA_REF`, `NME_CARD`
-- **Características**:
-  - Análise de padrões temporais e sazonalidade
-  - Tendências de longo prazo
-  - Indicadores de momentum
-  - Extração de componentes temporais
-  - Particionamento por período e set
-- **Tipo**: ⏰ Temporal Analysis (padrões temporais)
 
 ### 🚨 `TB_REPORT_ALERTAS_EXECUTIVOS.ipynb`
 - **Fonte**: Dados de cartas e preços da Silver
@@ -117,7 +110,6 @@ s3_gold_prefix        # Prefixo da camada gold
 └── gold/
     ├── TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
     ├── TB_METRICAS_PERFORMANCE_INVESTIMENTOS
-    ├── TB_ANALISE_TEMPORAL
     └── TB_REPORT_ALERTAS_EXECUTIVOS
 ```
 
@@ -191,13 +183,6 @@ s3_gold_prefix        # Prefixo da camada gold
 - **Arredondamento**: 2 casas para valores, 4 para percentuais
 - **Tipo**: 📈 Investment KPIs (métricas financeiras)
 
-### **Análises Temporais (TB_ANALISE_TEMPORAL)**
-- **Filtro**: Baseado em RELEASE_YEAR e RELEASE_MONTH
-- **Merge**: Incremental por DATA_REF + NME_CARD
-- **Particionamento**: Por DATA_REF, NME_SET
-- **Arredondamento**: 2 casas para valores, 4 para percentuais
-- **Tipo**: ⏰ Temporal Analysis (padrões temporais)
-
 ### **Alertas Executivos (TB_REPORT_ALERTAS_EXECUTIVOS)**
 - **Filtro**: Baseado em RELEASE_YEAR e RELEASE_MONTH
 - **Merge**: Incremental por DATA_REF + NME_CARD
@@ -229,12 +214,13 @@ dfs = processor.load_silver_data(['cards', 'prices'])
 
 ### **Merge Incremental Inteligente**
 ```python
-delta_table.alias("gold").merge(
-    df.alias("novo"),
-    merge_condition
-).whenMatchedUpdate(set=update_actions) \
- .whenNotMatchedInsert(values=insert_actions) \
- .execute()
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS target
+    USING _dedup AS source
+    ON {merge_condition}
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
 ```
 
 ### **Compatibilidade e Análises de Schema**
@@ -253,72 +239,14 @@ delta_table.alias("gold").merge(
 
 ### **Particionamento das Tabelas**
 - **Análises Executivas**: Particionamento por DATA_REF e dimensões de negócio
-- **Métricas de Performance**: Particionamento por DATA_REF e NME_SET
-- **Análises Temporais**: Particionamento por DATA_REF e NME_SET
-- **Alertas**: Particionamento por DATA_REF e NME_SET
+- **Métricas de Performance**: Particionamento por NME_SET
+- **Alertas**: Particionamento por DATA_REF
 
 ## 🔗 Próximos Passos
 
 Após o processamento na Gold, os dados estarão disponíveis para:
 1. **Dashboards Executivos**: Visualizações e relatórios
 3. **Tomada de Decisão**: Insights estratégicos
-
-## 📊 Expansão Futura - Tabelas Silver Restantes
-
-### 🎯 **Potencial de Análises Adicionais**
-
-Atualmente, a camada Gold utiliza apenas as tabelas `TB_FATO_SILVER_CARDS` e `TB_FATO_SILVER_CARDPRICES` da Silver. Existem **5 tabelas Silver adicionais** que podem expandir significativamente as capacidades analíticas:
-
-#### **Tabelas Silver Disponíveis para Expansão:**
-- **TB_REF_SILVER_SETS** - Metadados de coleções e expansões
-- **TB_REF_SILVER_TYPES** - Tipos de cartas (Criatura, Feitiço, Artefato, etc.)
-- **TB_REF_SILVER_SUPERTYPES** - Supertipos (Lendário, Básico, etc.)
-- **TB_REF_SILVER_SUBTYPES** - Subtipos (Humano, Dragão, Goblin, etc.)
-- **TB_REF_SILVER_FORMATS** - Formatos de jogo (Standard, Modern, Commander, etc.)
-
-### 🏗️ **Análises Futuras Possíveis**
-
-#### **Análises por Formato de Jogo:**
-- Performance de cartas por formato (Standard vs Modern vs Commander)
-- Análise de metagame e tendências por formato
-- Valorização específica por formato de jogo
-- Alertas de banimentos e restrições por formato
-
-#### **Análises por Tipo e Subtipo:**
-- Performance de Criaturas vs Feitiços vs Artefatos
-- Análise de tribos (Humano, Dragão, Goblin, etc.)
-- Valorização por tipo de carta
-- Tendências de design e poder por tipo
-
-#### **Análises por Coleção/Set:**
-- Performance de cartas por set de lançamento
-- Análise de power creep ao longo do tempo
-- Valorização de cartas por raridade dentro de sets
-- Sazonalidade de lançamentos de novos sets
-
-### 🗄️ **Data Warehouse Completo**
-
-Com todas as tabelas Silver disponíveis, é possível construir um **Data Warehouse completo** seguindo o modelo Star Schema:
-
-#### **Dimensões (DIM):**
-- **DIM_CARTAS** - Dimensão de cartas com todos os atributos
-- **DIM_SETS** - Dimensão de coleções e expansões
-- **DIM_TEMPO** - Dimensão temporal (ano, mês, trimestre)
-- **DIM_FORMATOS** - Dimensão de formatos de jogo
-- **DIM_TIPOS** - Dimensão de tipos e subtipos
-
-#### **Fatos (FATO):**
-- **FATO_PRECOS** - Fato central com preços e métricas
-- **FATO_PERFORMANCE** - Fato de performance e ROI
-- **FATO_MERCADO** - Fato de métricas de mercado
-
-#### **Tabelas Bridge:**
-- **BRIDGE_CARTA_FORMATO** - Relacionamento M:N entre cartas e formatos
-- **BRIDGE_CARTA_TIPO** - Relacionamento M:N entre cartas e tipos
-
-### 🎴 **Flavor Text da Expansão**
-*"Como um bibliotecário arcano descobrindo novos grimórios, a expansão da camada Gold revelará segredos ocultos do multiverso de dados, transformando cada tabela Silver em insights estratégicos de valor inestimável."*
-
 
 ## 🏗️ Engenharia de Dados
 
@@ -353,26 +281,28 @@ Com todas as tabelas Silver disponíveis, é possível construir um **Data Wareh
 
 ### 📐 Regras da Camada
 
-#### **Regra #1: Análises Executivas**
-```python
-# Agregações otimizadas para consultas executivas
-df_analise = df.groupBy("DATA_REF", "NME_SET", "NME_CARD_TYPE", "NME_RARITY") \
-    .agg(
-        sum("VLR_USD").cast("decimal(10,2)").alias("VALOR_TOTAL_MERCADO"),
-        countDistinct("NME_CARD").cast("int").alias("QTD_CARTAS_ATIVAS")
-    )
+#### **Regra #1: Análises Executivas (SQL)**
+```sql
+-- Agregações otimizadas para consultas executivas
+SELECT
+    DATA_REF, NME_SET, NME_CARD_TYPE, NME_RARITY,
+    cast(sum(VLR_USD) AS decimal(10,2)) AS VALOR_TOTAL_MERCADO,
+    cast(count(DISTINCT NME_CARD) AS int) AS QTD_CARTAS_ATIVAS
+FROM _mercado_join
+GROUP BY DATA_REF, NME_SET, NME_CARD_TYPE, NME_RARITY
 ```
 
 #### **Regra #2: Merge Incremental**
-```python
-delta_table.merge(df, "gold.DATA_REF = novo.DATA_REF AND gold.NME_CARD = novo.NME_CARD")
+```sql
+MERGE INTO delta.`{delta_path}` AS target USING _dedup AS source
+ON target.DATA_REF = source.DATA_REF AND target.NME_CARD = source.NME_CARD
 ```
 
 #### **Regra #3: Arredondamento Preciso**
-```python
-# 2 casas para valores monetários, 4 para percentuais
-sum("VLR_USD").cast("decimal(10,2)").alias("VALOR_TOTAL_MERCADO")
-(col("VALOR_TOTAL_MERCADO") / sum("VALOR_TOTAL_MERCADO").over(window)).cast("decimal(10,4)")
+```sql
+-- 2 casas para valores monetários, 4 para percentuais
+cast(sum(VLR_USD) AS decimal(10,2)) AS VALOR_TOTAL_MERCADO,
+cast(VALOR_TOTAL_MERCADO / sum(VALOR_TOTAL_MERCADO) OVER (PARTITION BY DATA_REF) AS decimal(10,4)) AS MARKET_SHARE_SET
 ```
 
 #### **Regra #4: Logs Estruturados**
@@ -415,7 +345,7 @@ print(f"Merge executado com sucesso")
 
 ### 🎴 Tipos de Análises Processadas
 ```
-📊 Executive Analysis    📈 Investment KPIs    ⏰ Temporal Analysis    🚨 Executive Alerts
+📊 Executive Analysis    📈 Investment KPIs    🚨 Executive Alerts
 ```
 
 ### 🔄 Operações de Merge
@@ -431,7 +361,7 @@ Para informações completas sobre cada tabela da camada Gold, incluindo schema 
 
 
 ### 📋 **O que você encontrará na documentação:**
-- **Schema detalhado** de todas as 4 tabelas de análise
+- **Schema detalhado** de todas as 3 tabelas de análise
 - **Regras de cálculo** e agregações
 - **Estratégias de particionamento** específicas
 - **Linhagem de dados** e fluxo de processamento
@@ -446,19 +376,17 @@ Para informações completas sobre cada tabela da camada Gold, incluindo schema 
 ### Execução Individual
 ```python
 # Executar notebook específico
-TB_ANALISE_MERCADO_CARTAS_EXECUTIVO_MODULAR.py
-TB_METRICAS_PERFORMANCE_INVESTIMENTOS_MODULAR.py
-TB_ANALISE_TEMPORAL.py
-TB_REPORT_ALERTAS_EXECUTIVOS_MODULAR.py
+TB_ANALISE_MERCADO_CARTAS_EXECUTIVO.py
+TB_METRICAS_PERFORMANCE_INVESTIMENTOS.py
+TB_REPORT_ALERTAS_EXECUTIVOS.py
 ```
 
 ### Execução Sequencial
 ```python
 # Executar todos os notebooks em ordem
-TB_ANALISE_MERCADO_CARTAS_EXECUTIVO_MODULAR.py
-TB_METRICAS_PERFORMANCE_INVESTIMENTOS_MODULAR.py
-TB_ANALISE_TEMPORAL.py
-TB_REPORT_ALERTAS_EXECUTIVOS_MODULAR.py
+TB_ANALISE_MERCADO_CARTAS_EXECUTIVO.py
+TB_METRICAS_PERFORMANCE_INVESTIMENTOS.py
+TB_REPORT_ALERTAS_EXECUTIVOS.py
 ```
 
 ## 📋 Checklist de Execução
