@@ -52,7 +52,7 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 **Processo**: **EL (Extract & Load)**
 - **Extract**: Leitura de dados Parquet da staging (S3)
 - **Load**: Carregamento incremental no Unity Catalog
-- **Dados**: 7 tabelas principais (Cards, Sets, Types, SuperTypes, SubTypes, Formats, CardPrices)
+- **Dados**: 3 tabelas principais (Cards, Sets, CardPrices)
 
 **Características**:
 - ✅ Dados brutos preservados
@@ -64,19 +64,15 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 **Tabelas**:
 - 🃏 **TB_BRONZE_CARDS** - Cartas com 25+ campos
 - 📦 **TB_BRONZE_SETS** - Expansões e coleções
-- 🏷️ **TB_BRONZE_TYPES** - Tipos de cartas
-- ⭐ **TB_BRONZE_SUPERTYPES** - Supertipos
-- 🔖 **TB_BRONZE_SUBTYPES** - Subtipos
-- 🎮 **TB_BRONZE_FORMATS** - Formatos de jogo
 - 💰 **TB_BRONZE_CARDPRICES** - Preços em tempo real
 
 ### 🥈 **Camada Silver** - Dados Limpos
 **Localização**: `src/03 - Silver/`
 
 **Processo**: **TL (Transform & Load)**
-- **Transform**: Limpeza, padronização e enriquecimento
+- **Transform**: Limpeza, padronização e enriquecimento via SQL (`spark.sql()` sobre temp views)
 - **Load**: Carregamento incremental com dados refinados
-- **Dados**: 7 tabelas enriquecidas e padronizadas
+- **Dados**: 3 tabelas enriquecidas e padronizadas
 
 **Características**:
 - ✅ Dados limpos e padronizados
@@ -84,23 +80,20 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 - ✅ Nomenclatura consistente (NME_, COD_, DESC_)
 - ✅ Particionamento otimizado
 - ✅ Qualidade de dados garantida
+- ✅ Transformações em SQL puro, sem UDFs Python
 
 **Tabelas**:
 - 🃏 **TB_FATO_SILVER_CARDS** - Cartas enriquecidas
 - 📦 **TB_REF_SILVER_SETS** - Expansões com metadados
-- 🏷️ **TB_REF_SILVER_TYPES** - Tipos padronizados
-- ⭐ **TB_REF_SILVER_SUPERTYPES** - Supertipos limpos
-- 🔖 **TB_REF_SILVER_SUBTYPES** - Subtipos organizados
-- 🎮 **TB_REF_SILVER_FORMATS** - Formatos de jogo
 - 💰 **TB_FATO_SILVER_CARDPRICES** - Preços processados
 
 ### 🥇 **Camada Gold** - Análises Executivas
 **Localização**: `src/04 - Gold/`
 
 **Processo**: **AL (Analyze & Load)**
-- **Analyze**: Análises pré-computadas e métricas de negócio
+- **Analyze**: Análises pré-computadas e métricas de negócio via SQL (`spark.sql()` sobre temp views)
 - **Load**: Carregamento incremental de insights estratégicos
-- **Dados**: 4 tabelas de análise executiva
+- **Dados**: 3 tabelas de análise executiva
 
 **Características**:
 - ✅ Análises pré-computadas
@@ -108,11 +101,11 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 - ✅ Insights estratégicos
 - ✅ Categorizações automáticas
 - ✅ Prontidão executiva
+- ✅ Transformações em SQL puro, sem UDFs Python
 
 **Tabelas**:
 - 📊 **TB_ANALISE_MERCADO_CARTAS_EXECUTIVO** - Análise executiva de mercado
 - 📈 **TB_METRICAS_PERFORMANCE_INVESTIMENTOS** - KPIs de performance
-- ⏰ **TB_ANALISE_TEMPORAL** - Padrões temporais
 - 🚨 **TB_REPORT_ALERTAS_EXECUTIVOS** - Sistema de alertas
 
 ## 🔄 Fluxo de Dados Completo
@@ -158,9 +151,9 @@ load_to_gold_unity_incremental(df_gold, "TB_ANALISE_MERCADO_CARTAS_EXECUTIVO")
 - **Apache Spark** - Processamento distribuído
 
 ### **Linguagens e APIs**
-- **PySpark** - DataFrame API
-- **Python** - Scripts de automação
-- **SQL** - Consultas e análises
+- **SQL** - Regras de negócio das camadas Silver e Gold (`spark.sql()` sobre temp views, sem UDFs Python)
+- **Python** - Orquestração (extract/load/save/config)
+- **PySpark** - Leitura/escrita de dados e integração com Delta Lake
 
 ### **Infraestrutura**
 - **AWS S3** - Storage de staging

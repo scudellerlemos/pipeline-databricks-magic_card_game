@@ -25,27 +25,29 @@ Transformar dados estruturados da Bronze em dados limpos, padronizados e enrique
 
 ## 🔄 Processo TL (Transform & Load)
 
-### **Transform - Limpeza e Enriquecimento**
+### **Transform - Limpeza e Enriquecimento (SQL)**
+As regras de negócio de cada notebook são escritas em SQL puro, executadas via `spark.sql()` sobre temp views (sem UDFs Python):
 ```python
-# Exemplo de transformação típica
-cards = cards.withColumn("NME_CARD", initcap(trim(col("NME_CARD"))))
-cards = cards.withColumn("MANA_COST", coalesce(col("MANA_COST"), lit(0)))
-cards = cards.withColumn("NME_COLOR_CATEGORY", when(col("COD_COLORS") == "Colorless", "Colorless")
-    .when(size(split(col("COD_COLORS"), ",")) == 1, "Mono")
-    .when(size(split(col("COD_COLORS"), ",")) == 2, "Dual Color")
-    .otherwise("Multicolor"))
+spark.sql("""
+    CREATE OR REPLACE TEMP VIEW _cards_stage2 AS
+    SELECT
+        initcap(trim(NME_CARD)) AS NME_CARD,
+        coalesce(MANA_COST, 0) AS MANA_COST,
+        ...
+    FROM _cards_stage1
+""")
 ```
 
 ### **Load - Carregamento na Silver**
+O carregamento incremental usa `MERGE INTO` em SQL puro (não o builder `DeltaTable.merge()`):
 ```python
-def load_to_silver_unity_incremental(df, table_name):
-    # Merge incremental com Delta Lake
-    delta_table.alias("silver").merge(
-        df.alias("novo"),
-        "silver.id = novo.id"  # ou chave específica
-    ).whenMatchedUpdateAll() \
-     .whenNotMatchedInsertAll() \
-     .execute()
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS target
+    USING _dedup AS source
+    ON {merge_condition}
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
 ```
 
 ## 📁 Estrutura dos Notebooks
@@ -71,22 +73,13 @@ def load_to_silver_unity_incremental(df, table_name):
   - Particionamento por ano/mês de lançamento
 - **Tipo**: 📦 Expansion Set (dados temporais)
 
-### 🏷️ `Types.ipynb`, ⭐ `SuperTypes.ipynb`, 🔖 `SubTypes.ipynb`, 🎮 `Formats.ipynb`
-- **Fonte**: Dados de referência da Bronze
-- **Chave**: Nome do tipo/supertipo/subtipo/formato
-- **Características**:
-  - Dados de referência estáticos
-  - Padronização e limpeza
-  - Particionamento por ano/mês de ingestão
-- **Tipo**: 🏷️/⭐/🔖/🎮 Reference Card (dados estáticos)
-
 ### 💰 `Card_Prices.ipynb`
 - **Fonte**: Dados de preços da Bronze
-- **Chave**: `NME_CARD`
+- **Chave**: `[ID_CARD, DT_INGESTION]`
 - **Características**:
   - Preços em tempo real (USD, EUR, TIX)
-  - Merge incremental por nome da carta
-  - Particionamento por ano/mês de ingestão
+  - Merge incremental por ID da carta + data de ingestão
+  - Particionamento por ano/mês de referência (`ANO_PART`/`MES_PART`)
   - Dependência: requer dados de cards já processados
 - **Tipo**: 💰 Market Data (dados dinâmicos)
 
@@ -106,10 +99,6 @@ s3_silver_prefix      # Prefixo da camada silver
 └── silver/
     ├── cards
     ├── sets
-    ├── types
-    ├── supertypes
-    ├── subtypes
-    ├── formats
     └── card_prices
 ```
 
@@ -173,14 +162,6 @@ s3_silver_prefix      # Prefixo da camada silver
 - **Histórico**: Mantido no Delta Lake
 - **Tipo**: 🃏 Creature/Spell/Artifact (dinâmicos)
 
-### **Dados de Referência (Types, SuperTypes, SubTypes, Formats)**
-- **Filtro**: Sem filtro temporal (dados estáticos)
-- **Merge**: Incremental por nome
-- **Particionamento**: Por ano/mês baseado em `DT_INGESTION`
-- **Frequência**: Atualização ocasional
-- **Compatibilidade**: Suporte a schemas antigos
-- **Tipo**: 🏷️ Reference Card (estáticos)
-
 ### **Dados de Preços (Card Prices)**
 - **Filtro**: Baseado em cards existentes (sem filtro temporal direto)
 - **Merge**: Incremental por nome da carta
@@ -197,12 +178,13 @@ s3_silver_prefix      # Prefixo da camada silver
 
 ### **Merge Incremental Inteligente**
 ```python
-delta_table.alias("silver").merge(
-    df.alias("novo"),
-    merge_condition
-).whenMatchedUpdate(set=update_actions) \
- .whenNotMatchedInsert(values=insert_actions) \
- .execute()
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS target
+    USING _dedup AS source
+    ON {merge_condition}
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
 ```
 
 ### **Compatibilidade e Enriquecimento de Schema**
@@ -263,16 +245,17 @@ Após o processamento na Silver, os dados estarão disponíveis para:
 
 ### 📐 Regras da Camada
 
-#### **Regra #1: Enriquecimento e Padronização**
-```python
-# Exemplo de enriquecimento
-cards = cards.withColumn("NME_COLOR_CATEGORY", ...)
-cards = cards.withColumn("QTY_COLORS", ...)
+#### **Regra #1: Enriquecimento e Padronização (SQL)**
+```sql
+SELECT
+    ...,
+    CASE WHEN COD_COLORS = 'Colorless' THEN 'Colorless' ... END AS NME_COLOR_CATEGORY
+FROM _cards_stage2
 ```
 
 #### **Regra #2: Merge Incremental**
-```python
-delta_table.merge(df, "silver.id = novo.id")
+```sql
+MERGE INTO delta.`{delta_path}` AS target USING _dedup AS source ON silver.id = novo.id
 ```
 
 #### **Regra #3: Compatibilidade de Schema**
@@ -321,9 +304,7 @@ print(f"Merge executado com sucesso")
 
 ### 🎴 Tipos de Dados Processados
 ```
-🃏 Cards (Temporais)    📦 Sets (Temporais)    🏷️ Types (Referência)
-⭐ SuperTypes (Referência)    🔖 SubTypes (Referência)    🎮 Formats (Referência)
-💰 Card Prices (Market Data)
+🃏 Cards (Temporais)    📦 Sets (Temporais)    💰 Card Prices (Market Data)
 ```
 
 ### 🔄 Operações de Merge
