@@ -10,12 +10,12 @@ ADAPTADO PARA DATABRICKS NOTEBOOKS:
 - dbutils e spark são disponíveis globalmente nos notebooks
 - SparkSession obtido automaticamente do contexto global
 - Requer infraestrutura comum (AUD-09) já carregada no notebook via:
-  %run ../../00 - Common/Dev/base_utils
+  %run "../../00 - Common/Dev/base_utils"
 - Use %run ./silver_utils para importar no notebook, DEPOIS do %run acima
 
 EXEMPLO DE USO NO NOTEBOOK:
 
-%run ../../00 - Common/Dev/base_utils
+%run "../../00 - Common/Dev/base_utils"
 %run ./silver_utils
 
 config = create_manual_config("meu_catalog", "s3://meu-bucket")
