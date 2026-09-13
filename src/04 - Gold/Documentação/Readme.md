@@ -45,18 +45,6 @@ Fornecer documentação executiva e técnica de todas as tabelas Gold, permitind
   - Métricas de liquidez
   - Indicadores de performance
 
-### ⏰ **TB_ANALISE_TEMPORAL** - Análise Temporal e Sazonalidade
-- **Descrição**: Análise de padrões temporais, sazonalidade e tendências de mercado
-- **Chave Primária**: `DATA_REF`, `NME_CARD`
-- **Particionamento**: `DATA_REF`, `NME_SET`
-- **Filtro Temporal**: Baseado em `RELEASE_YEAR` e `RELEASE_MONTH`
-- **Schema**: 20+ colunas (métricas temporais)
-- **Características**:
-  - Análise de sazonalidade mensal
-  - Tendências de longo prazo
-  - Padrões cíclicos
-  - Indicadores de momentum
-
 ### 🚨 **TB_REPORT_ALERTAS_EXECUTIVOS** - Alertas Executivos
 - **Descrição**: Sistema de alertas para mudanças significativas no mercado de cartas
 - **Chave Primária**: `DATA_REF`, `NME_CARD`
@@ -76,7 +64,6 @@ Fornecer documentação executiva e técnica de todas as tabelas Gold, permitind
 |--------|----------------|-----------------|----------------|
 | TB_ANALISE_MERCADO_CARTAS_EXECUTIVO | Mercado | DATA_REF, NME_SET, NME_CARD_TYPE, NME_RARITY | Agregações executivas |
 | TB_METRICAS_PERFORMANCE_INVESTIMENTOS | Performance | DATA_REF, NME_SET | KPIs financeiros |
-| TB_ANALISE_TEMPORAL | Temporal | DATA_REF, NME_SET | Padrões temporais |
 | TB_REPORT_ALERTAS_EXECUTIVOS | Alertas | DATA_REF, NME_SET | Sistema de alertas |
 
 ## 🎴 **Flavor Text da Documentação**
@@ -85,9 +72,9 @@ Fornecer documentação executiva e técnica de todas as tabelas Gold, permitind
 ## 📈 Estatísticas da Camada Gold
 
 ### **Volume de Dados**
-- **4 tabelas** documentadas
-- **4 tipos de análise** especializados
-- **Total estimado**: ~60+ colunas de métricas
+- **3 tabelas** documentadas
+- **3 tipos de análise** especializados
+- **Total estimado**: ~40+ colunas de métricas
 - **Granularidade**: Por carta, set, tipo e raridade
 
 ### **Padrões de Nomenclatura**
@@ -103,7 +90,6 @@ Fornecer documentação executiva e técnica de todas as tabelas Gold, permitind
 ### **Estratégias de Particionamento**
 - **Análises Executivas**: Particionamento por DATA_REF e dimensões de negócio
 - **Métricas de Performance**: Particionamento por DATA_REF e NME_SET
-- **Análises Temporais**: Particionamento por DATA_REF e NME_SET
 - **Alertas**: Particionamento por DATA_REF e NME_SET
 
 ## 🔍 Como Usar Esta Documentação
