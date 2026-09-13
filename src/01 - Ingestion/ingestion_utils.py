@@ -48,16 +48,19 @@ def get_secret(secret_name, default_value=None):
 
 def setup_s3_storage(base_path):
     try:
-        try:
-            dbutils.fs.ls(base_path)
-            print("Diretório do S3 já existe")
-        except Exception:
-            dbutils.fs.mkdirs(base_path)
-            print("Diretório do S3 criado com sucesso")
+        dbutils.fs.ls(base_path)
+        print("Diretório do S3 já existe")
+        return True
+    except Exception:
+        pass
+    try:
+        dbutils.fs.mkdirs(base_path)
+        print("Diretório do S3 criado com sucesso")
         return True
     except Exception as e:
-        print(f"Erro ao configurar S3 storage: {e}")
-        return False
+        # ponytail: propaga a exceção real (credencial/IAM/path inválido) em vez
+        # de engolir e devolver False - o chamador só sabia dizer "falhou", nunca por quê.
+        raise Exception(f"Erro ao configurar S3 storage em '{base_path}': {e}")
 
 
 def make_api_request(endpoint, api_base_url, params=None, retries=3):
