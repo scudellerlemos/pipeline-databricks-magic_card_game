@@ -1,7 +1,7 @@
-# ponytail: fetch_price_index/get_card_price live inside a notebook cell (not
-# an importable .py), so this loads that cell's source straight out of the
-# .ipynb JSON and execs it with a fake `requests` (bulk-data index + gzipped
-# jsonl payload) - same "exercise the real code" spirit as
+# ponytail: fetch_price_records/_to_price_record live inside a notebook cell
+# (not an importable .py), so this loads that cell's source straight out of
+# the .ipynb JSON and execs it with a fake `requests` (bulk-data index +
+# gzipped jsonl payload) - same "exercise the real code" spirit as
 # test_base_utils_get_secret.py, just for a notebook cell instead of a .py
 # module.
 
@@ -16,21 +16,22 @@ _NB_PATH = os.path.join(os.path.dirname(__file__), "card_prices.ipynb")
 def _load_functions(fake_get):
     with open(_NB_PATH, encoding="utf-8") as f:
         nb = json.load(f)
-    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: fetch_price_index / get_card_price
+    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: card_prices-specific functions
 
     ns = {
         "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),
-        "unicodedata": __import__("unicodedata"),
         "gzip": gzip,
         "json": json,
-        "datetime": __import__("datetime").datetime,
+        "StructType": lambda fields: None,
+        "StructField": lambda *a, **k: None,
+        "StringType": lambda: None,
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
         "SCRYFALL_BULK_TYPE": "oracle_cards",
         "MAX_RETRIES": 3,
     }
     exec(cell_source, ns)
-    return ns["fetch_price_index"], ns["get_card_price"]
+    return ns["_to_price_record"], ns["fetch_price_records"]
 
 
 class _Resp:
@@ -56,50 +57,65 @@ def _fake_get_for(cards):
     return fake_get
 
 
-def test_fetch_price_index_resolves_by_name():
+def test_fetch_price_records_maps_fields():
     cards = [{
         "name": "Nissa, Worldsoul Speaker", "set": "drc", "rarity": "rare",
+        "released_at": "2025-01-31",
         "prices": {"usd": "0.25", "eur": "0.21", "tix": "1.04"},
         "scryfall_uri": "https://scryfall.com/x",
         "image_uris": {"normal": "https://img/x.jpg"},
     }]
 
-    fetch_price_index, get_card_price = _load_functions(_fake_get_for(cards))
-    index = fetch_price_index()
-    result = get_card_price("Nissa, Worldsoul Speaker", index)
+    _, fetch_price_records = _load_functions(_fake_get_for(cards))
+    records = fetch_price_records()
 
-    assert result["usd"] == "0.25"
-    assert result["set"] == "drc"
+    assert len(records) == 1
+    assert records[0]["name"] == "Nissa, Worldsoul Speaker"
+    assert records[0]["set"] == "drc"
+    assert records[0]["usd"] == "0.25"
+    assert records[0]["eur"] == "0.21"
+    assert records[0]["tix"] == "1.04"
+    assert records[0]["scryfall_uri"] == "https://scryfall.com/x"
+    assert records[0]["image_url"] == "https://img/x.jpg"
+    assert records[0]["releaseDate"] == "2025-01-31"
 
 
-def test_double_faced_card_indexed_by_each_face():
-    # A Scryfall indexa cartas de dupla face com o nome combinado "A // B",
-    # mas a fonte de cards referencia só a face da frente - fetch_price_index
-    # precisa indexar as duas formas.
+def test_double_faced_card_keeps_combined_name_as_is():
+    # issue #<readequacao>: landing zone não tenta mais casar por nome com os
+    # arquivos de `cards` (isso é join, fica pra Bronze/Silver) - o nome
+    # combinado "A // B" que a Scryfall devolve pra cartas de dupla face é
+    # gravado como veio, sem indexar por cada face separadamente.
     cards = [{
         "name": "Brightglass Gearhulk // Brightglass Gearhulk", "set": "eoe", "rarity": "mythic",
+        "released_at": "2025-07-25",
         "prices": {"usd": "3.50", "eur": None, "tix": None},
         "scryfall_uri": "https://scryfall.com/y", "image_uris": None,
     }]
 
-    fetch_price_index, get_card_price = _load_functions(_fake_get_for(cards))
-    index = fetch_price_index()
-    result = get_card_price("Brightglass Gearhulk", index)
+    _, fetch_price_records = _load_functions(_fake_get_for(cards))
+    records = fetch_price_records()
 
-    assert result["usd"] == "3.50"
+    assert records[0]["name"] == "Brightglass Gearhulk // Brightglass Gearhulk"
+    assert records[0]["usd"] == "3.50"
+    assert records[0]["image_url"] is None
 
 
-def test_unknown_card_returns_error_not_exception():
-    fetch_price_index, get_card_price = _load_functions(_fake_get_for([]))
-    index = fetch_price_index()
-    result = get_card_price("Totally Fake Card", index)
+def test_fetch_price_records_returns_one_row_per_catalog_entry():
+    cards = [
+        {"name": "A", "released_at": "2020-01-01", "prices": {}},
+        {"name": "B", "released_at": "2021-01-01", "prices": {}},
+        {"name": "C", "released_at": "2022-01-01", "prices": {}},
+    ]
 
-    assert result == {"name": "Totally Fake Card", "error": "Not found in Scryfall bulk data"}
+    _, fetch_price_records = _load_functions(_fake_get_for(cards))
+    records = fetch_price_records()
+
+    assert [r["name"] for r in records] == ["A", "B", "C"]
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    test_fetch_price_index_resolves_by_name()
-    test_double_faced_card_indexed_by_each_face()
-    test_unknown_card_returns_error_not_exception()
+    test_fetch_price_records_maps_fields()
+    test_double_faced_card_keeps_combined_name_as_is()
+    test_fetch_price_records_returns_one_row_per_catalog_entry()
     print("OK")

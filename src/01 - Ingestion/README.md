@@ -38,7 +38,14 @@ e decide o que gravar via idempotência de arquivo (abaixo), não via delta da A
 |---|---|---|---|
 | `cards.ipynb` | `bulk-data/default_cards` | 1 linha por impressão (set+número) | Filtra por `set_codes` dentro da janela `years_back` (via `sets`) |
 | `sets.ipynb` | `GET /sets` | 1 linha por coleção | Filtra por `releaseDate >= cutoff` |
-| `card_prices.ipynb` | `bulk-data/oracle_cards` | 1 linha por carta (nome) | Lê os `cards.parquet` já gravados e resolve preço por nome (sem request por carta) |
+| `card_prices.ipynb` | `bulk-data/oracle_cards` | 1 linha por carta (nome, deduplicado por Oracle ID) | Filtra por `releaseDate >= cutoff`, independente de `cards.ipynb` |
+
+Os três notebooks são independentes entre si — nenhum lê o S3 gravado por outro.
+`card_prices.ipynb` já leu os arquivos de `cards.parquet` pra descobrir quais cartas
+precisava precificar (criando uma dependência de execução entre os dois); hoje ele
+grava seu próprio snapshot do catálogo `oracle_cards` filtrado pela mesma janela
+`years_back`, e o join "esse preço pertence a essas impressões" (1 preço → N
+impressões, já que `oracle_cards` é deduplicado) fica pra Bronze/Silver.
 
 `ingestion_utils.py` concentra o que é comum aos três (`%run ./ingestion_utils`):
 `get_secret`, `setup_s3_storage`, `http_get_with_retry`, `save_to_parquet`,
@@ -60,7 +67,7 @@ max_retries           # Tentativas de retry por request HTTP (padrão: 3)
 s3://{bucket}/{stage_prefix}/
 ├── {year}_{month}_{day}_cards.parquet   # dia da execução no nome - evita pular o mês
 ├── {year}_{month}_{day}_sets.parquet    # inteiro a partir do 2º run do mesmo mês (AUD-04)
-├── {year}_{month}_card_prices.parquet   # granularidade mensal (preço muda todo dia, arquivo não precisa)
+├── {year}_{month}_{day}_card_prices.parquet   # mesma granularidade diária dos outros dois
 └── _control/
     ├── cards/{run_id}.json
     ├── sets/{run_id}.json
@@ -69,16 +76,14 @@ s3://{bucket}/{stage_prefix}/
 
 ## 🔁 Idempotência e controle de execução
 
-- **Nome de arquivo determinístico** por tabela/dia (mês, no caso de `card_prices`) — se
-  o arquivo já existe, a run pula essa partição (`files_skipped`) em vez de sobrescrever.
+- **Nome de arquivo determinístico** por tabela/dia — se o arquivo já existe, a run
+  pula essa partição (`files_skipped`) em vez de sobrescrever. Os três notebooks
+  (`cards`, `sets`, `card_prices`) usam o mesmo esquema via `save_to_parquet()`.
 - **`start_run()`/`finish_run()`** (`ingestion_utils.py`) gravam um JSON por execução em
   `_control/{table}/{run_id}.json` com: `run_id`, `endpoint`, `params`, início/fim,
   duração, `files_written`/`files_skipped`/`records_written`, `status`
-  (`RUNNING`/`SUCCESS`/`FAILED`/`PARTIAL`) e `error`. É observabilidade — se o próprio
+  (`RUNNING`/`SUCCESS`/`FAILED`) e `error`. É observabilidade — se o próprio
   write do controle falhar, o notebook só avisa e segue (não mascara o resultado real).
-- **`card_prices.ipynb`** processa 1 arquivo de cards por vez; um arquivo com erro não
-  derruba os demais — status final vira `PARTIAL` (não `SUCCESS`) se pelo menos 1 mês
-  falhou, `FAILED` se nenhum foi gravado.
 - Uma run nova **nunca apaga** dado de uma run anterior bem-sucedida — falha vira
   `FAILED`/`PARTIAL` registrado no controle, sem tocar nos arquivos já gravados.
   Reprocessar é rodar o notebook de novo (idempotente por arquivo).
