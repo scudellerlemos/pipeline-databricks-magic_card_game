@@ -12,31 +12,31 @@ resources:
         # ============================================================================
         # INGESTÃO - STAGING
         # ============================================================================
-        - task_key: STAGE_CARDS
+        - task_key: stage_cartas
           notebook_task:
             notebook_path: src/01 - Ingestion/cards
             source: GIT
           job_cluster_key: Job_cluster
-          
-        - task_key: STAGE_SETS
+
+        - task_key: stage_colecao
           notebook_task:
             notebook_path: src/01 - Ingestion/sets
             source: GIT
           job_cluster_key: Job_cluster
-          
-        - task_key: STAGE_CARDPRICES
+
+        - task_key: stage_precos
           notebook_task:
             notebook_path: src/01 - Ingestion/card_prices
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: STAGE_SYMBOLOGY
+        - task_key: stage_simbologia
           notebook_task:
             notebook_path: src/01 - Ingestion/symbology
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: STAGE_RULINGS
+        - task_key: stage_regras
           notebook_task:
             notebook_path: src/01 - Ingestion/rulings
             source: GIT
@@ -45,45 +45,45 @@ resources:
         # ============================================================================
         # BRONZE LAYER
         # ============================================================================
-        - task_key: BRONZE_CARDS
+        - task_key: bronze_cartas
           depends_on:
-            - task_key: STAGE_CARDS
+            - task_key: stage_cartas
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDS
             source: GIT
           job_cluster_key: Job_cluster
-          
-        - task_key: BRONZE_SETS
+
+        - task_key: bronze_colecao
           depends_on:
-            - task_key: STAGE_SETS
+            - task_key: stage_colecao
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SETS
             source: GIT
           job_cluster_key: Job_cluster
-          
-        - task_key: BRONZE_CARDPRICES
+
+        - task_key: bronze_precos
           depends_on:
-            - task_key: STAGE_CARDPRICES
+            - task_key: stage_precos
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDPRICES
             source: GIT
           job_cluster_key: Job_cluster
-          
+
         # ============================================================================
         # SILVER LAYER
         # ============================================================================
-        - task_key: SILVER_CARDS
+        - task_key: silver_cartas
           depends_on:
-            - task_key: BRONZE_CARDS
-            - task_key: BRONZE_CARDPRICES
+            - task_key: bronze_cartas
+            - task_key: bronze_precos
           notebook_task:
             notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDS
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: SILVER_SETS
+        - task_key: silver_colecao
           depends_on:
-            - task_key: BRONZE_SETS
+            - task_key: bronze_colecao
           notebook_task:
             notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SETS
             source: GIT
@@ -92,25 +92,25 @@ resources:
         # ============================================================================
         # GOLD LAYER
         # ============================================================================
-        - task_key: GOLD_MERCADO_EXECUTIVO
+        - task_key: gold_mercado_executivo
           depends_on:
-            - task_key: SILVER_CARDS
+            - task_key: silver_cartas
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: GOLD_METRICAS_INVESTIMENTOS
+        - task_key: gold_metricas_investimentos
           depends_on:
-            - task_key: SILVER_CARDS
+            - task_key: silver_cartas
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: GOLD_REPORT_EXECUTIVO
+        - task_key: gold_relatorio_executivo
           depends_on:
-            - task_key: SILVER_CARDS
+            - task_key: silver_cartas
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_REPORT_ALERTAS_EXECUTIVOS
             source: GIT
