@@ -104,32 +104,6 @@ def make_api_request(endpoint, api_base_url, params=None, retries=3):
     return None
 
 
-def get_filtered_set_codes(api_base_url, cutoff_date_str, retries=3):
-    """Busca /sets (paginado - a API retorna no máx. 500 por página) e retorna
-    os códigos das coleções lançadas a partir de cutoff_date_str."""
-    all_sets = []
-    page = 1
-    while True:
-        data = make_api_request("sets", api_base_url, params={"page": page, "pageSize": 500}, retries=retries)
-        if not data or "sets" not in data or not data["sets"]:
-            break
-        all_sets.extend(data["sets"])
-        if len(data["sets"]) < 500:
-            break
-        page += 1
-
-    if not all_sets:
-        print("Falha ao obter lista de sets para filtrar coleções")
-        return []
-
-    codes = [
-        s["code"] for s in all_sets
-        if s.get("code") and s.get("releaseDate") and s["releaseDate"] >= cutoff_date_str
-    ]
-    print(f"Coleções dentro da janela temporal (releaseDate >= {cutoff_date_str}): {len(codes)}/{len(all_sets)} sets")
-    return codes
-
-
 def save_to_parquet(spark, data, table_name, base_path, schema=None,
                      partition_source_col=None, cutoff_date_str=None):
     """
