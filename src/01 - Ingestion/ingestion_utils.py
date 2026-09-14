@@ -253,3 +253,24 @@ def finish_run(run, base_path, status, error=None):
         + (f" erro={error}" if error else "")
     )
     return run
+
+
+def run_stage_ingestion(table_name, endpoint, ingest_fn, base_path, params=None):
+    """
+    Padroniza o wrapper start_run -> try/ingest_fn -> finish_run repetido
+    quase byte-a-byte nos 6 notebooks de Stage (cards/sets/card_prices/
+    symbology/rulings/migrations). ingest_fn é chamado como ingest_fn(run) e
+    deve devolver o DataFrame gravado, ou None se a ingestão não gravou nada
+    (vira FAILED). Devolve (df, run) - o relatório impresso ao final continua
+    no notebook, já que o conteúdo varia por tabela.
+    """
+    run = start_run(table_name, endpoint=endpoint, params=params)
+    try:
+        print(f"Iniciando ingestão de {table_name}...")
+        df = ingest_fn(run)
+        status = "SUCCESS" if df is not None else "FAILED"
+        finish_run(run, base_path, status)
+        return df, run
+    except Exception as e:
+        finish_run(run, base_path, "FAILED", error=str(e))
+        raise
