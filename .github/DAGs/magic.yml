@@ -42,6 +42,12 @@ resources:
             source: GIT
           job_cluster_key: Job_cluster
 
+        - task_key: stage_migracoes
+          notebook_task:
+            notebook_path: src/01 - Ingestion/migrations
+            source: GIT
+          job_cluster_key: Job_cluster
+
         # ============================================================================
         # BRONZE LAYER
         # ============================================================================
