@@ -77,7 +77,11 @@ impressões, já que `oracle_cards` é deduplicado) fica pra Bronze/Silver.
 
 `ingestion_utils.py` concentra o que é comum aos notebooks (`%run ./ingestion_utils`):
 `get_secret`, `setup_s3_storage`, `http_get_with_retry`, `save_to_parquet`,
-`get_scryfall_set_codes_since`, `start_run`/`finish_run`.
+`get_scryfall_set_codes_since`, `start_run`/`finish_run`, `run_stage_ingestion`
+(padroniza o wrapper `start_run` → `try`/ingest → `finish_run` repetido nos 6
+notebooks — cada um só chama `run_stage_ingestion(table_name, endpoint,
+ingest_fn, S3_BASE_PATH)` e monta seu próprio relatório com o DataFrame
+devolvido).
 
 ## ⚙️ Segredos (scope `mtg-pipeline`)
 
