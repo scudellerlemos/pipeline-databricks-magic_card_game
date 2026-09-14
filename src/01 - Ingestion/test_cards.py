@@ -6,7 +6,6 @@ import gzip
 import json
 import os
 import sys
-import types
 
 _NB_PATH = os.path.join(os.path.dirname(__file__), "cards.ipynb")
 
@@ -18,8 +17,8 @@ def _load_functions(fake_get):
 
     ns = {
         "json": json,
-        "requests": types.SimpleNamespace(get=fake_get),
         "gzip": gzip,
+        "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),
         "StructType": lambda fields: None,
         "StructField": lambda *a, **k: None,
         "StringType": lambda: None,
@@ -28,6 +27,7 @@ def _load_functions(fake_get):
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
         "SCRYFALL_BULK_TYPE": "default_cards",
+        "MAX_RETRIES": 3,
     }
     exec(cell_source, ns)
     return ns["_to_card_record"], ns["fetch_cards_by_sets"], ns["clean_cards_data"]

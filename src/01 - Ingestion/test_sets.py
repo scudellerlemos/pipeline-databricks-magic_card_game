@@ -5,7 +5,6 @@
 import json
 import os
 import sys
-import types
 
 _NB_PATH = os.path.join(os.path.dirname(__file__), "sets.ipynb")
 
@@ -17,7 +16,7 @@ def _load_functions(fake_get):
 
     ns = {
         "json": json,
-        "requests": types.SimpleNamespace(get=fake_get),
+        "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),
         "StructType": lambda fields: None,
         "StructField": lambda *a, **k: None,
         "StringType": lambda: None,
@@ -25,6 +24,7 @@ def _load_functions(fake_get):
         "BooleanType": lambda: None,
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
+        "MAX_RETRIES": 3,
         "setup_s3_storage": lambda *a, **k: True,
         "S3_BASE_PATH": "s3://test-bucket/stage",
     }

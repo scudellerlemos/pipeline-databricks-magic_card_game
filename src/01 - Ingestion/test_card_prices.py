@@ -9,7 +9,6 @@ import gzip
 import json
 import os
 import sys
-import types
 
 _NB_PATH = os.path.join(os.path.dirname(__file__), "card_prices.ipynb")
 
@@ -20,7 +19,7 @@ def _load_functions(fake_get):
     cell_source = "".join(nb["cells"][1]["source"])  # cell-1: fetch_price_index / get_card_price
 
     ns = {
-        "requests": types.SimpleNamespace(get=fake_get),
+        "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),
         "unicodedata": __import__("unicodedata"),
         "gzip": gzip,
         "json": json,
@@ -28,6 +27,7 @@ def _load_functions(fake_get):
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
         "SCRYFALL_BULK_TYPE": "oracle_cards",
+        "MAX_RETRIES": 3,
     }
     exec(cell_source, ns)
     return ns["fetch_price_index"], ns["get_card_price"]
