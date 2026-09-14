@@ -1,6 +1,6 @@
 # ponytail: same approach as test_card_prices.py - the notebook cell isn't an
 # importable .py, so load its source straight out of the .ipynb JSON and exec
-# it with a fake `requests` (bulk-data index + gzipped jsonl payload).
+# it with a fake `requests` (bulk-data index + gzipped jsonl payload, or /sets).
 
 import gzip
 import json
@@ -30,7 +30,7 @@ def _load_functions(fake_get):
         "MAX_RETRIES": 3,
     }
     exec(cell_source, ns)
-    return ns["_to_card_record"], ns["fetch_cards_by_sets"], ns["clean_cards_data"]
+    return ns["_to_card_record"], ns["fetch_cards_by_sets"]
 
 
 class _Resp:
@@ -74,7 +74,7 @@ def test_fetch_cards_by_sets_filters_by_set_and_maps_fields():
         },
     ]
 
-    _, fetch_cards_by_sets, _ = _load_functions(_fake_get_for(cards))
+    _, fetch_cards_by_sets = _load_functions(_fake_get_for(cards))
     records = fetch_cards_by_sets(["lea"])
 
     assert len(records) == 1
@@ -83,23 +83,6 @@ def test_fetch_cards_by_sets_filters_by_set_and_maps_fields():
     assert records[0]["type"] == "Instant"
     assert records[0]["setName"] == "Limited Edition Alpha"
     assert records[0]["imageUrl"] == "https://img/bolt.jpg"
-
-
-def test_fetch_cards_by_sets_matches_uppercase_set_codes():
-    # bug #125: get_filtered_set_codes (magicthegathering.io) devolve códigos
-    # em maiúsculas ("LEA"), mas o campo `set` da Scryfall é sempre minúsculo
-    # ("lea") - o filtro precisa normalizar os dois lados.
-    cards = [{
-        "name": "Lightning Bolt", "set": "lea", "rarity": "common",
-        "set_name": "Limited Edition Alpha", "collector_number": "161",
-        "type_line": "Instant", "layout": "normal", "id": "abc",
-    }]
-
-    _, fetch_cards_by_sets, _ = _load_functions(_fake_get_for(cards))
-    records = fetch_cards_by_sets(["LEA"])
-
-    assert len(records) == 1
-    assert records[0]["name"] == "Lightning Bolt"
 
 
 def test_double_faced_card_falls_back_to_front_face():
@@ -118,11 +101,11 @@ def test_double_faced_card_falls_back_to_front_face():
         ],
     }
 
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     record = to_card_record(dfc_card)
 
     assert record["manaCost"] == "{U}"
-    assert record["colors"] == ["U"]
+    assert record["colors"] == json.dumps(["U"])
     assert record["power"] == "1"
     assert record["imageUrl"] == "https://img/delver.jpg"
 
@@ -132,32 +115,48 @@ def test_double_faced_card_empty_colors_not_treated_as_missing():
     # deve cair no fallback pra card_faces (`is not None`, não `or`).
     card = {"name": "X", "colors": [], "card_faces": [{"colors": ["R"]}]}
 
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     record = to_card_record(card)
 
-    assert record["colors"] == []
+    assert record["colors"] == json.dumps([])
 
 
-def test_missing_scryfall_only_fields_become_none_after_clean():
+def test_legalities_dict_is_serialized_as_valid_json():
+    # issue #129: legalities na Scryfall é um dict (não list) - o clean_cards_data
+    # antigo só fazia json.dumps pra listas e caía num str(dict) (repr Python,
+    # não JSON válido) pra legalities. _to_card_record agora sempre serializa
+    # via json.dumps, então o valor gravado é sempre JSON válido.
+    card = {"name": "X", "legalities": {"standard": "legal", "modern": "legal"}}
+
+    to_card_record, _ = _load_functions(_fake_get_for([]))
+    record = to_card_record(card)
+
+    assert json.loads(record["legalities"]) == {"standard": "legal", "modern": "legal"}
+
+
+def test_missing_scryfall_only_fields_are_none():
     # foreignNames/printings/originalText/originalType/types/subtypes/
-    # multiverseid/variations não têm equivalente na Scryfall - clean_cards_data
-    # já trata ausência como None (comportamento existente, não alterado).
-    to_card_record, _, clean_cards_data = _load_functions(_fake_get_for([]))
+    # multiverseid/variations não têm equivalente na Scryfall.
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     card = {"name": "X", "set": "lea", "rarity": "common", "id": "1"}
     record = to_card_record(card)
 
-    cleaned = clean_cards_data([record])[0]
-    assert cleaned["foreignNames"] is None
-    assert cleaned["printings"] is None
-    assert cleaned["multiverseid"] is None
-    assert cleaned["types"] is None
+    assert record["foreignNames"] is None
+    assert record["printings"] is None
+    assert record["multiverseid"] is None
+    assert record["types"] is None
+
+
+# fetch_valid_set_codes ficou em ingestion_utils.py como get_scryfall_set_codes_since
+# (usa http_get_with_retry) - coberto por
+# test_get_scryfall_set_codes_since_filters_by_date_and_lowercases em test_ingestion_utils.py.
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_fetch_cards_by_sets_filters_by_set_and_maps_fields()
-    test_fetch_cards_by_sets_matches_uppercase_set_codes()
     test_double_faced_card_falls_back_to_front_face()
     test_double_faced_card_empty_colors_not_treated_as_missing()
-    test_missing_scryfall_only_fields_become_none_after_clean()
+    test_legalities_dict_is_serialized_as_valid_json()
+    test_missing_scryfall_only_fields_are_none()
     print("OK")
