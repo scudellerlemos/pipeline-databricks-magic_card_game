@@ -110,12 +110,19 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 
 ## 🔄 Fluxo de Dados Completo
 
-### **1. Ingestão (01 - Ingestion)**
+### **1. Ingestão / Stage (01 - Ingestion)**
 ```python
-# Extração da API MTG
-api_data = extract_from_mtg_api()
-# Salvamento em Parquet na staging
-save_to_staging(api_data, "cards.parquet")
+# Controle de execução: início do run
+run_id = start_run(base_path, "cards", endpoint, params)
+
+# Extração da Scryfall com retry/backoff em 429/5xx
+data = http_get_with_retry(url, headers, timeout, retries)
+
+# Salvamento em Parquet no Stage (snapshot datado, idempotente)
+save_to_parquet(data, f"{base_path}/cards/{year}_{month}_{day}_cards.parquet")
+
+# Controle de execução: fim do run (SUCCESS/FAILED/PARTIAL)
+finish_run(base_path, "cards", run_id, status="SUCCESS", ...)
 ```
 
 ### **2. Bronze (02 - Bronze)**

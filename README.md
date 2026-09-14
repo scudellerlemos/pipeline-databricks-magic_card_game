@@ -34,8 +34,8 @@ Este projeto implementa um **pipeline completo de dados** para análise de merca
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   MTG API       │    │                 │    │                 │
-│   + Scryfall    │───▶│  Databricks     │───▶│  Analytics      │
+│   Scryfall API  │    │                 │    │                 │
+│                 │───▶│  Databricks     │───▶│  Analytics      │
 │   (Extract)     │    │  (Transform)    │    │  (Load)         │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
@@ -51,14 +51,11 @@ Este projeto implementa um **pipeline completo de dados** para análise de merca
 ```
 pipeline-databricks-magic_card_game/
 ├── 📁 src/
-│   ├── 📁 01 - Ingestion/          # 🚀 Ingestão de dados da API
+│   ├── 📁 01 - Ingestion/          # 🚀 Ingestão de dados da Scryfall API (Stage)
 │   │   ├── cards.ipynb             # Cartas
 │   │   ├── sets.ipynb              # Sets/Expansões
-│   │   ├── formats.ipynb           # Formatos de jogo
-│   │   ├── types.ipynb             # Tipos de carta
-│   │   ├── subtypes.ipynb          # Subtipos
-│   │   ├── supertypes.ipynb        # Supertipos
-│   │   └── card_prices.ipynb       # Preços das cartas
+│   │   ├── card_prices.ipynb       # Preços das cartas (idempotência mensal)
+│   │   └── ingestion_utils.py      # HTTP retry, S3, controle de execução
 │   │
 │   ├── 📁 02 - Bronze/             # 🥉 Camada Bronze (Raw)
 │   │   ├── 📁 Dev/
@@ -103,15 +100,14 @@ pipeline-databricks-magic_card_game/
 
 ## 🚀 **Pipeline ETL**
 
-### **1. Ingestão (Staging)**
-- **Fontes**: 
-  - **Magic: The Gathering API**: Cartas, Sets, Tipos, Formatos
-  - **Scryfall API**: Preços de mercado (USD, EUR, TIX)
-- **Dados**: Cartas, Sets, Formatos, Tipos, Preços
-- **Formato**: Parquet
-- **Frequência**: Diária (6h da manhã)
-- **Volume**: 1000+ páginas de dados processadas
-- **Paginação**: Automática e otimizada
+### **1. Ingestão (Stage)**
+- **Fonte**: Scryfall API (bulk-data para cartas/preços, `/sets` para expansões)
+- **Dados**: Cartas, Sets, Preços de mercado (USD, EUR, TIX)
+- **Formato**: Parquet, em snapshots datados (`{ano}_{mes}_{dia}_{tabela}.parquet`)
+- **Estratégia de carga**: FULL LOAD por execução — a Scryfall não expõe incrementalidade real; a data no nome do arquivo é a data de *ingestão* (para rastreabilidade e idempotência), não um filtro de negócio na origem
+- **Frequência**: Diária (6h da manhã); `card_prices` é idempotente por mês
+- **Controle de execução**: um JSON por run em `_control/{tabela}/{run_id}.json` (status, contagens, duração, erro)
+- **Resiliência**: retry com backoff em erros HTTP transitórios (429/5xx)
 
 ### **2. Bronze Layer**
 - **Função**: Armazenamento raw dos dados
@@ -155,31 +151,21 @@ pipeline-databricks-magic_card_game/
 | **Language** | Python | 3.9+ |
 | **Storage** | Delta Lake | - |
 | **CI/CD** | GitHub Actions | - |
-| **APIs** | MTG API + Scryfall |
+| **APIs** | Scryfall |
 
 ## 🔗 **Fontes de Dados**
 
-### **Magic: The Gathering API**
-- **URL**: `https://api.magicthegathering.io/v1`
-- **Dados**: Cartas, Sets, Tipos, Formatos, Metadados
-- **Características**: API oficial, gratuita, completa
-- **Rate Limiting**: Respeitado automaticamente
-- **Volume**: 1000+ páginas de dados
-- **Paginação**: Implementada automaticamente
-
 ### **Scryfall API**
 - **URL**: `https://api.scryfall.com`
-- **Dados**: Preços de mercado (USD, EUR, TIX)
-- **Características**: Especializada em dados de mercado
-- **Rate Limiting**: 7 workers simultâneos
+- **Dados**: Cartas, Sets, Preços de mercado (USD, EUR, TIX)
+- **Características**: API pública, sem necessidade de chave; bulk-data cobre cartas/preços em um único download, sem paginação manual
+- **Rate Limiting**: requisições sequenciais com retry/backoff (`http_get_with_retry`) em 429/5xx
 
 
 ### **Entidades Principais**
-- 🃏 **Cartas**: ~50,000+ cartas únicas (1000+ páginas da API)
+- 🃏 **Cartas**: catálogo completo via bulk-data
 - 📦 **Sets**: Todas as expansões
-- 🎮 **Formatos**: Standard, Modern, Legacy, etc.
-- 💰 **Preços**: Histórico de preços
-- 🏷️ **Tipos**: Categorização completa
+- 💰 **Preços**: Histórico de preços (snapshots mensais)
 
 ### **Métricas Calculadas**
 - 📈 **ROI**: Retorno sobre investimento
@@ -187,11 +173,10 @@ pipeline-databricks-magic_card_game/
 - 🎯 **Tendências**: Movimentos de mercado
 - ⚡ **Alertas**: Oportunidades de investimento
 
-### **Processamento de Grandes Volumes**
-- 🔄 **Paginação Automática**: 1000+ páginas processadas
-- ⚡ **Performance Otimizada**: Processamento paralelo
-- 📊 **Incremental**: Evita reprocessamento desnecessário
-- 🛡️ **Tolerância a Falhas**: Retry automático em caso de erro
+### **Processamento e Resiliência (Stage)**
+- 📥 **Bulk-data**: catálogo completo em um único download (sem paginação)
+- 🔁 **Idempotência**: arquivos datados, reexecução no mesmo dia não reescreve dados já gravados
+- 🛡️ **Tolerância a Falhas**: retry com backoff em erros HTTP transitórios
 
 
 ## 🚀 **Como Usar**
@@ -293,8 +278,7 @@ spark_conf:
 ## 🙏 **Agradecimentos**
 
 - 🎮 **Wizards of the Coast**: Magic: The Gathering
-- 📊 **Magic: The Gathering API**: Dados oficiais das cartas
-- 💰 **Scryfall**: API de preços e dados de mercado
+- 💰 **Scryfall**: API de cartas, sets e dados de mercado
 - ☁️ **Databricks**: Plataforma de dados
 - 🚀 **GitHub**: CI/CD e versionamento
 
