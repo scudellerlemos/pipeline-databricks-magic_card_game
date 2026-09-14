@@ -177,33 +177,26 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
         else:
             df_final = df_final.dropDuplicates(key_cols)
 
-        df_final.createOrReplaceTempView("_silver_merge_source")
         # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
         # match e a linha seria reinserida a cada execução (duplicando o dado).
         merge_condition = " AND ".join(f"silver.{k} <=> novo.{k}" for k in key_cols)
 
-        # ponytail: conf de autoMerge é escopo de sessão (não por statement) - salvar e
-        # restaurar o valor anterior em vez de sempre limpar evita desabilitar autoMerge
-        # de um MERGE concorrente de outro job na mesma sessão/cluster; isolar de verdade
-        # exigiria sessão Spark dedicada por job, revisitar se isso doer.
-        autoMerge_key = "spark.databricks.delta.schema.autoMerge.enabled"
-        autoMerge_prev = spark_session.conf.get(autoMerge_key, None)
-        spark_session.conf.set(autoMerge_key, "true")
-        try:
-            merge_result = spark_session.sql(f"""
-                MERGE INTO delta.`{delta_path}` AS silver
-                USING _silver_merge_source AS novo
-                ON {merge_condition}
-                WHEN MATCHED THEN UPDATE SET *
-                WHEN NOT MATCHED THEN INSERT *
-            """)
-        finally:
-            if autoMerge_prev is None:
-                spark_session.conf.unset(autoMerge_key)
-            else:
-                spark_session.conf.set(autoMerge_key, autoMerge_prev)
+        # withSchemaEvolution() no merge builder em vez de
+        # spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", ...):
+        # esse conf de sessão é bloqueado em compute serverless
+        # (CONFIG_NOT_AVAILABLE.SERVERLESS_DELTA_SCHEMA_AUTO_MERGE_ENABLED); o merge
+        # builder resolve schema evolution por operação, sem tocar conf de sessão.
+        delta_table = DeltaTable.forPath(spark_session, delta_path)
+        (
+            delta_table.alias("silver")
+            .merge(df_final.alias("novo"), merge_condition)
+            .withSchemaEvolution()
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
 
-        print(f"Merge em {full_table_name}: {merge_result.collect()[0].asDict()}")
+        print(f"Merge concluído em {full_table_name}.")
 
     else:
         print("Tabela Delta já existe mas sem key_column. Fazendo overwrite.")
