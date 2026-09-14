@@ -85,6 +85,23 @@ def test_fetch_cards_by_sets_filters_by_set_and_maps_fields():
     assert records[0]["imageUrl"] == "https://img/bolt.jpg"
 
 
+def test_fetch_cards_by_sets_matches_uppercase_set_codes():
+    # bug #125: get_filtered_set_codes (magicthegathering.io) devolve códigos
+    # em maiúsculas ("LEA"), mas o campo `set` da Scryfall é sempre minúsculo
+    # ("lea") - o filtro precisa normalizar os dois lados.
+    cards = [{
+        "name": "Lightning Bolt", "set": "lea", "rarity": "common",
+        "set_name": "Limited Edition Alpha", "collector_number": "161",
+        "type_line": "Instant", "layout": "normal", "id": "abc",
+    }]
+
+    _, fetch_cards_by_sets, _ = _load_functions(_fake_get_for(cards))
+    records = fetch_cards_by_sets(["LEA"])
+
+    assert len(records) == 1
+    assert records[0]["name"] == "Lightning Bolt"
+
+
 def test_double_faced_card_falls_back_to_front_face():
     dfc_card = {
         "name": "Delver of Secrets // Insectile Aberration",
@@ -139,6 +156,7 @@ def test_missing_scryfall_only_fields_become_none_after_clean():
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_fetch_cards_by_sets_filters_by_set_and_maps_fields()
+    test_fetch_cards_by_sets_matches_uppercase_set_codes()
     test_double_faced_card_falls_back_to_front_face()
     test_double_faced_card_empty_colors_not_treated_as_missing()
     test_missing_scryfall_only_fields_become_none_after_clean()
