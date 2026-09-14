@@ -25,13 +25,23 @@ resources:
           job_cluster_key: Job_cluster
           
         - task_key: STAGE_CARDPRICES
-          depends_on:
-            - task_key: STAGE_CARDS
           notebook_task:
             notebook_path: src/01 - Ingestion/card_prices
             source: GIT
           job_cluster_key: Job_cluster
-          
+
+        - task_key: STAGE_SYMBOLOGY
+          notebook_task:
+            notebook_path: src/01 - Ingestion/symbology
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: STAGE_RULINGS
+          notebook_task:
+            notebook_path: src/01 - Ingestion/rulings
+            source: GIT
+          job_cluster_key: Job_cluster
+
         # ============================================================================
         # BRONZE LAYER
         # ============================================================================

@@ -81,6 +81,27 @@ def test_fetch_all_sets_no_pagination_needed():
     assert len(records) == 1049
 
 
+def test_fetch_all_sets_maps_new_scryfall_only_fields():
+    # card_count/parent_set_code/block/icon_svg_uri existem na Scryfall e nao
+    # tinham equivalente na magicthegathering.io - antes ficavam simplesmente
+    # nao capturados (perda silenciosa), agora sao mapeados como os demais.
+    sets_data = [{
+        "code": "dmc", "name": "Duskmourn Commander", "set_type": "commander",
+        "released_at": "2024-09-27", "digital": False,
+        "card_count": 240, "parent_set_code": "dmu", "block": "Commander",
+        "icon_svg_uri": "https://svgs.scryfall.io/sets/dmc.svg?1234",
+    }]
+
+    _, fetch_all_sets, clean_sets_data = _load_functions(_fake_get_for(sets_data))
+    records = fetch_all_sets()
+    cleaned = clean_sets_data(records)[0]
+
+    assert cleaned["card_count"] == 240
+    assert cleaned["parent_set_code"] == "dmu"
+    assert cleaned["block"] == "Commander"
+    assert cleaned["icon_svg_uri"] == "https://svgs.scryfall.io/sets/dmc.svg?1234"
+
+
 def test_magicthegathering_only_fields_become_none_after_clean():
     # border/mkm_id/mkm_name/gathererCode/magicCardsInfoCode/oldCode/booster
     # não têm equivalente na Scryfall - clean_sets_data já trata ausência
@@ -103,5 +124,6 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_fetch_all_sets_maps_fields_in_single_request()
     test_fetch_all_sets_no_pagination_needed()
+    test_fetch_all_sets_maps_new_scryfall_only_fields()
     test_magicthegathering_only_fields_become_none_after_clean()
     print("OK")
