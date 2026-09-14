@@ -13,12 +13,32 @@ inteiro assim que o primeiro arquivo daquele mês existisse.
 """
 
 import json
+import threading
 import time
 from datetime import datetime
 
 import requests
 from pyspark.sql.functions import col, lit, current_timestamp, year, month, when
 from pyspark.sql.types import StructType, StructField, StringType
+
+# Throttle proativo compartilhado por todo make_api_request (cards/sets/
+# formats/types/subtypes/supertypes): mesmo achado do #117 (Scryfall) se
+# repete aqui - STAGE_CARDS silenciosamente perdia coleções inteiras (63/132
+# sets sem nenhum card) porque só havia pausa entre páginas de uma MESMA
+# coleção, nunca entre coleções, então o rate limit da api.magicthegathering.io
+# estourava e make_api_request esgotava os retries. 0.1s (~10 req/s) segue o
+# mesmo teto documentado já usado para a Scryfall em card_prices.ipynb.
+REQUEST_SLEEP_BETWEEN = 0.1
+_rate_lock = threading.Lock()
+_last_request_time = [0.0]
+
+
+def _throttle_request():
+    with _rate_lock:
+        wait = _last_request_time[0] + REQUEST_SLEEP_BETWEEN - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_time[0] = time.monotonic()
 
 # ponytail: em Serverless + Git source, %run às vezes executa este arquivo num
 # namespace que não herda o `dbutils` implícito do notebook. Puxa do IPython
@@ -68,6 +88,7 @@ def make_api_request(endpoint, api_base_url, params=None, retries=3):
 
     for attempt in range(retries):
         try:
+            _throttle_request()
             response = requests.get(url, params=params, timeout=30)
 
             if response.status_code == 200:
