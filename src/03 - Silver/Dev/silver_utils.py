@@ -97,14 +97,15 @@ def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
 def extract_from_bronze(catalog, table_name_bronze):
     """EXTRACT: lê dados da camada Bronze"""
     spark_session = get_spark_session()
-    try:
-        bronze_table = f"{catalog}.bronze.{table_name_bronze}"
-        df = spark_session.table(bronze_table)
-        print(f"Extraídos {df.count()} registros da Bronze: {bronze_table}")
-        return df
-    except Exception as e:
-        print(f"Erro no EXTRACT da Bronze: {e}")
-        return None
+    bronze_table = f"{catalog}.bronze.{table_name_bronze}"
+    # Não engolir a exceção aqui: um "return None" silencioso fazia o erro
+    # real (ex.: tabela Bronze inexistente/corrompida) só aparecer 2 camadas
+    # depois, na Gold, como UNRESOLVED_COLUMN sem nenhuma pista da causa. Deixar
+    # propagar mostra a mensagem original (ex.: TABLE_OR_VIEW_NOT_FOUND) direto
+    # no erro da task Silver.
+    df = spark_session.table(bronze_table)
+    print(f"Extraídos {df.count()} registros da Bronze: {bronze_table}")
+    return df
 
 # ============================================================================
 # FUNÇÃO DE CARREGAMENTO DELTA/UNITY CATALOG
