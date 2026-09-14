@@ -212,7 +212,6 @@ def load_silver_tables(config, table_list=None):
 
     default_tables = {
         'cards': f"{catalog}.{schema_silver}.TB_FATO_SILVER_CARDS",
-        'prices': f"{catalog}.{schema_silver}.TB_FATO_SILVER_CARDPRICES",
         'sets': f"{catalog}.{schema_silver}.TB_REF_SILVER_SETS",
     }
 
