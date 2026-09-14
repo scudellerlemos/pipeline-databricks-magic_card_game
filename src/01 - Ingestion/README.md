@@ -226,14 +226,13 @@ s3://{bucket}/{prefix}/
 - Setup do Spark e S3
 
 ### 2. **Funções Utilitárias**
-- Compartilhadas via `ingestion_utils.py` (`%run ./ingestion_utils`), usada por **todos os 7 notebooks**
-  (AUD-08 resolvido por completo): `get_secret()`, `setup_s3_storage()`, `make_api_request()`,
-  `get_filtered_set_codes()`, `save_to_parquet()`
-- `clean_simple_list()` / `ingest_reference_table()`: também em `ingestion_utils.py` — ingestão genérica
-  para as 4 tabelas de referência (`formats`, `subtypes`, `supertypes`, `types`), que não têm mais
-  boilerplate duplicado local
-- `clean_cards_data()` / `clean_sets_data()`: limpeza específica de schema complexo, mantida em
-  `cards.ipynb`/`sets.ipynb` (não generalizável para o helper genérico)
+- Compartilhadas via `ingestion_utils.py` (`%run ./ingestion_utils`): `get_secret()`, `setup_s3_storage()`,
+  `save_to_parquet()`
+- issue #129: `cards.ipynb`/`sets.ipynb`/`card_prices.ipynb` usam só a Scryfall API — sem mais chamadas
+  à magicthegathering.io (`make_api_request()`/`get_filtered_set_codes()` foram removidas)
+- `clean_sets_data()`: limpeza específica de schema complexo, mantida em `sets.ipynb`
+- issue #129: `cards.ipynb` não tem mais `clean_cards_data()` — a landing zone captura o dado bruto
+  da Scryfall (via `_to_card_record`) e só filtra por coleção, sem tratamento/coerção de tipo adicional
 
 ### 3. **Ingestão**
 - Coleta de dados da API
@@ -245,8 +244,8 @@ s3://{bucket}/{prefix}/
 
 ### Dados Temporais (Cards e Sets)
 - **Filtro**: Últimos `years_back` anos (secret, padrão 5), lido de forma consistente por cards/sets/card_prices
-- **Por coleção**: `cards.ipynb` busca a lista de sets dentro da janela (`get_filtered_set_codes`) e
-  pagina o endpoint `/cards?set=<code>` coleção por coleção — sem mais o cap fixo de 100 páginas
+- **Por coleção**: `cards.ipynb` busca a lista de sets dentro da janela na Scryfall (`fetch_valid_set_codes`,
+  `/sets`) e filtra o catálogo inteiro da Bulk Data API em memória (issue #129)
 - **Particionamento**: Ano/Mês, com o dia da execução no nome do arquivo (AUD-04: evita pular o mês inteiro
   a partir da 2ª execução)
 - **Incremental**: Evita reprocessar o mesmo dia duas vezes
