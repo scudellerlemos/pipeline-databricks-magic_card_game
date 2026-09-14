@@ -65,11 +65,12 @@ resources:
         - task_key: SILVER_CARDS
           depends_on:
             - task_key: BRONZE_CARDS
+            - task_key: BRONZE_CARDPRICES
           notebook_task:
             notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDS
             source: GIT
           job_cluster_key: Job_cluster
-          
+
         - task_key: SILVER_SETS
           depends_on:
             - task_key: BRONZE_SETS
@@ -77,40 +78,29 @@ resources:
             notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SETS
             source: GIT
           job_cluster_key: Job_cluster
-          
-        - task_key: SILVER_CARDPRICES
-          depends_on:
-            - task_key: BRONZE_CARDPRICES
-          notebook_task:
-            notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDPRICES
-            source: GIT
-          job_cluster_key: Job_cluster
-          
+
         # ============================================================================
         # GOLD LAYER
         # ============================================================================
         - task_key: GOLD_MERCADO_EXECUTIVO
           depends_on:
             - task_key: SILVER_CARDS
-            - task_key: SILVER_CARDPRICES
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
             source: GIT
           job_cluster_key: Job_cluster
-          
+
         - task_key: GOLD_METRICAS_INVESTIMENTOS
           depends_on:
             - task_key: SILVER_CARDS
-            - task_key: SILVER_CARDPRICES
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
             source: GIT
           job_cluster_key: Job_cluster
-          
+
         - task_key: GOLD_REPORT_EXECUTIVO
           depends_on:
             - task_key: SILVER_CARDS
-            - task_key: SILVER_CARDPRICES
           notebook_task:
             notebook_path: src/04 - Gold/Dev/TB_REPORT_ALERTAS_EXECUTIVOS
             source: GIT
