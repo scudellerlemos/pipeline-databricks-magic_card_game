@@ -38,6 +38,23 @@ from delta.tables import DeltaTable
 # (ver docstring acima). Não fazemos %run aninhado aqui: o lint estático de
 # notebooks (AUD-10) só resolve %run um nível, então um %run dentro deste
 # arquivo vira texto Python inválido quando inlined por ele.
+#
+# ponytail: %run isola cada arquivo no seu próprio namespace antes de mesclar
+# no notebook chamador - funções definidas AQUI (diferente de código de nível
+# superior do notebook) não enxergam nomes de base_utils.py por esse merge.
+# Puxa do IPython quando isso acontece; fora de um notebook Databricks (ex.:
+# pytest local), get_ipython() é None e o bloco é ignorado.
+try:
+    get_spark_session, get_secret, setup_unity_catalog
+except NameError:
+    try:
+        import IPython
+        _user_ns = IPython.get_ipython().user_ns
+        get_spark_session = _user_ns["get_spark_session"]
+        get_secret = _user_ns["get_secret"]
+        setup_unity_catalog = _user_ns["setup_unity_catalog"]
+    except Exception:
+        pass
 # ============================================================================
 
 # ============================================================================
