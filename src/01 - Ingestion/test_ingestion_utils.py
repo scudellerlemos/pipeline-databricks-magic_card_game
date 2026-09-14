@@ -11,6 +11,25 @@ import sys
 import types
 from contextlib import contextmanager
 
+# pyspark não está instalado no CI (nem em pytest local fora de um cluster
+# Databricks) - só o import, nunca chamado pelos testes abaixo (o único uso
+# real, save_to_parquet, não é exercitado aqui). Stub mínimo pra satisfazer
+# o `from pyspark.sql.functions import ...` de nível de módulo.
+if "pyspark" not in sys.modules:
+    pyspark = types.ModuleType("pyspark")
+    pyspark_sql = types.ModuleType("pyspark.sql")
+    pyspark_sql_functions = types.ModuleType("pyspark.sql.functions")
+    pyspark_sql_types = types.ModuleType("pyspark.sql.types")
+    for name in ("col", "lit", "current_timestamp", "year", "month", "when"):
+        setattr(pyspark_sql_functions, name, lambda *a, **k: None)
+    for name in ("StructType", "StructField", "StringType", "IntegerType", "FloatType"):
+        setattr(pyspark_sql_types, name, lambda *a, **k: None)
+    pyspark.sql = pyspark_sql
+    sys.modules["pyspark"] = pyspark
+    sys.modules["pyspark.sql"] = pyspark_sql
+    sys.modules["pyspark.sql.functions"] = pyspark_sql_functions
+    sys.modules["pyspark.sql.types"] = pyspark_sql_types
+
 _PATH = os.path.join(os.path.dirname(__file__), "ingestion_utils.py")
 _SPEC = importlib.util.spec_from_file_location("ingestion_utils", _PATH)
 ingestion_utils = importlib.util.module_from_spec(_SPEC)
