@@ -42,6 +42,15 @@ fonte (issues #121/#123/#127/#128/#129) — os três notebooks usam exclusivamen
   recorte. Referencia a carta por `oracle_id` (não por impressão) — a Stage não hoje
   captura `oracle_id` em `cards.ipynb`, então esse join fica pendente pra Bronze/Silver
   até que `oracle_id` seja adicionado a `cards.ipynb` também.
+- **`migrations.ipynb`**: `GET /migrations` — único endpoint da Stage que pagina de
+  verdade (`has_more`/`next_page`, ~350 registros por página), diferente do padrão
+  "1 request só" usado no resto da camada. Histórico de reconciliação de
+  `scryfall_id` (`migration_strategy`: `delete` remove um ID, `merge` aponta
+  `old_scryfall_id` → `new_scryfall_id`), referenciado por `metadata.oracle_id`/
+  `metadata.set_code`/`metadata.collector_number` (flattenados em colunas
+  `metadata_*`, mesmo padrão do `booster` explodido em `sets.ipynb`). Sem filtro
+  temporal: cortar por data quebraria a rastreabilidade de IDs antigos que
+  Bronze/Silver podem precisar resolver, mesmo tratando de cartas antigas.
 
 A Scryfall não expõe CDC nem um cursor de "o que mudou desde X" para cards/sets — só
 `released_at`/`digital` nos sets. Por isso **não existe incrementalidade "de verdade"**
@@ -57,6 +66,7 @@ e decide o que gravar via idempotência de arquivo (abaixo), não via delta da A
 | `card_prices.ipynb` | `bulk-data/oracle_cards` | 1 linha por carta (nome, deduplicado por Oracle ID) | Filtra por `releaseDate >= cutoff`, independente de `cards.ipynb` |
 | `symbology.ipynb` | `GET /symbology` | 1 linha por símbolo | Catálogo estático, sem filtro temporal |
 | `rulings.ipynb` | `bulk-data/rulings` | 1 linha por ruling (referenciada por `oracle_id`) | Sem filtro temporal, catálogo inteiro (~79k linhas) |
+| `migrations.ipynb` | `GET /migrations` | 1 linha por migração de ID | Único endpoint paginado da Stage, sem filtro temporal |
 
 Os notebooks são independentes entre si — nenhum lê o S3 gravado por outro.
 `card_prices.ipynb` já leu os arquivos de `cards.parquet` pra descobrir quais cartas
@@ -88,12 +98,14 @@ s3://{bucket}/{stage_prefix}/
 ├── {year}_{month}_{day}_card_prices.parquet   # mesma granularidade diária dos outros dois
 ├── {year}_{month}_{day}_symbology.parquet     # partição por data de ingestão (sem coluna de data própria)
 ├── {year}_{month}_{day}_rulings.parquet       # partição por data de ingestão (sem coluna de data própria)
+├── {year}_{month}_{day}_migrations.parquet    # partição por data de ingestão (sem filtro/coluna de data própria)
 └── _control/
     ├── cards/{run_id}.json
     ├── sets/{run_id}.json
     ├── card_prices/{run_id}.json
     ├── symbology/{run_id}.json
-    └── rulings/{run_id}.json
+    ├── rulings/{run_id}.json
+    └── migrations/{run_id}.json
 ```
 
 ## 🔁 Idempotência e controle de execução
