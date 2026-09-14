@@ -25,7 +25,23 @@ fonte (issues #121/#123/#127/#128/#129) — os três notebooks usam exclusivamen
   (`default_cards` / `oracle_cards`) — 1 request pro índice + 1 download do `.jsonl.gz`
   inteiro, filtrado em memória. Sem paginação, sem 1 request por carta/coleção.
 - **`sets.ipynb`**: `GET /sets` — devolve o catálogo inteiro em 1 request (`has_more: false`),
-  sem paginação.
+  sem paginação. Além dos campos herdados da magicthegathering.io, captura também
+  `card_count`, `parent_set_code`, `block` e `icon_svg_uri` — nativos da Scryfall,
+  sem equivalente na fonte antiga, antes simplesmente não coletados.
+- **`symbology.ipynb`**: `GET /symbology` — catálogo inteiro de símbolos de carta/mana
+  em 1 request (`has_more: false`), sem paginação. Tabela de referência estática (84
+  símbolos): sem filtro temporal, idempotência só por arquivo do dia. Hoje a Silver
+  decodifica símbolo de mana com `regexp_replace` hardcoded (`{W}`→branco, `{U}`→azul
+  etc., em `TB_FATO_SILVER_CARDS`), cobrindo só os símbolos de cor básicos — perde
+  híbrido/Phyrexian. `symbology.ipynb` traz a fonte oficial pra esse mapeamento.
+- **`rulings.ipynb`**: [Bulk Data](https://scryfall.com/docs/api/bulk-data) (`rulings`)
+  — mesmo padrão de `cards.ipynb`/`card_prices.ipynb` (1 request pro índice + 1
+  download do `.jsonl.gz` inteiro). Sem filtro temporal: diferente de preço/impressão,
+  uma ruling antiga sobre uma carta antiga continua válida hoje — não expira pelo
+  calendário. Catálogo pequeno (~79k linhas, ~5MB comprimido), sem necessidade de
+  recorte. Referencia a carta por `oracle_id` (não por impressão) — a Stage não hoje
+  captura `oracle_id` em `cards.ipynb`, então esse join fica pendente pra Bronze/Silver
+  até que `oracle_id` seja adicionado a `cards.ipynb` também.
 
 A Scryfall não expõe CDC nem um cursor de "o que mudou desde X" para cards/sets — só
 `released_at`/`digital` nos sets. Por isso **não existe incrementalidade "de verdade"**
@@ -39,15 +55,17 @@ e decide o que gravar via idempotência de arquivo (abaixo), não via delta da A
 | `cards.ipynb` | `bulk-data/default_cards` | 1 linha por impressão (set+número) | Filtra por `set_codes` dentro da janela `years_back` (via `sets`) |
 | `sets.ipynb` | `GET /sets` | 1 linha por coleção | Filtra por `releaseDate >= cutoff` |
 | `card_prices.ipynb` | `bulk-data/oracle_cards` | 1 linha por carta (nome, deduplicado por Oracle ID) | Filtra por `releaseDate >= cutoff`, independente de `cards.ipynb` |
+| `symbology.ipynb` | `GET /symbology` | 1 linha por símbolo | Catálogo estático, sem filtro temporal |
+| `rulings.ipynb` | `bulk-data/rulings` | 1 linha por ruling (referenciada por `oracle_id`) | Sem filtro temporal, catálogo inteiro (~79k linhas) |
 
-Os três notebooks são independentes entre si — nenhum lê o S3 gravado por outro.
+Os notebooks são independentes entre si — nenhum lê o S3 gravado por outro.
 `card_prices.ipynb` já leu os arquivos de `cards.parquet` pra descobrir quais cartas
 precisava precificar (criando uma dependência de execução entre os dois); hoje ele
 grava seu próprio snapshot do catálogo `oracle_cards` filtrado pela mesma janela
 `years_back`, e o join "esse preço pertence a essas impressões" (1 preço → N
 impressões, já que `oracle_cards` é deduplicado) fica pra Bronze/Silver.
 
-`ingestion_utils.py` concentra o que é comum aos três (`%run ./ingestion_utils`):
+`ingestion_utils.py` concentra o que é comum aos notebooks (`%run ./ingestion_utils`):
 `get_secret`, `setup_s3_storage`, `http_get_with_retry`, `save_to_parquet`,
 `get_scryfall_set_codes_since`, `start_run`/`finish_run`.
 
@@ -68,10 +86,14 @@ s3://{bucket}/{stage_prefix}/
 ├── {year}_{month}_{day}_cards.parquet   # dia da execução no nome - evita pular o mês
 ├── {year}_{month}_{day}_sets.parquet    # inteiro a partir do 2º run do mesmo mês (AUD-04)
 ├── {year}_{month}_{day}_card_prices.parquet   # mesma granularidade diária dos outros dois
+├── {year}_{month}_{day}_symbology.parquet     # partição por data de ingestão (sem coluna de data própria)
+├── {year}_{month}_{day}_rulings.parquet       # partição por data de ingestão (sem coluna de data própria)
 └── _control/
     ├── cards/{run_id}.json
     ├── sets/{run_id}.json
-    └── card_prices/{run_id}.json
+    ├── card_prices/{run_id}.json
+    ├── symbology/{run_id}.json
+    └── rulings/{run_id}.json
 ```
 
 ## 🔁 Idempotência e controle de execução
