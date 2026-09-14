@@ -46,7 +46,7 @@ def get_standard_config():
     defaults = {
         'catalog_name': 'magic_the_gathering',
         's3_bucket': 's3://meu-bucket-default',
-        's3_gold_prefix': 'magic_the_gathering/gold'
+        's3_gold_prefix': 'gold'
     }
 
     config = {key: get_secret(key, extra_safe_defaults=defaults) for key in defaults}
@@ -69,7 +69,7 @@ def create_manual_config(catalog_name, s3_bucket, s3_gold_prefix=None):
         'schema_silver': "silver",
         'schema_gold': "gold",
         's3_bucket': s3_bucket,
-        's3_gold_prefix': s3_gold_prefix or "magic_the_gathering/gold"
+        's3_gold_prefix': s3_gold_prefix or "gold"
     }
 
 # ============================================================================
