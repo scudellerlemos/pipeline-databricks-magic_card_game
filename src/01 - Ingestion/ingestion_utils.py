@@ -1,24 +1,28 @@
 # ============================================================================
-# INGESTION UTILS - Funções compartilhadas pelos notebooks de Ingestão
+# INGESTION UTILS - Funções compartilhadas pelos notebooks de Ingestão (Stage)
 # ============================================================================
 """
 Uso no notebook (Databricks):
     %run ./ingestion_utils
 
-Consolida o boilerplate antes duplicado em cards/sets/formats/subtypes/
-supertypes/types (AUD-08) e corrige o bug de cadência do save_to_parquet
-(AUD-04): o nome do arquivo de staging passa a incluir o dia da execução,
-então cada run diário grava seu próprio arquivo em vez de "pular" o mês
-inteiro assim que o primeiro arquivo daquele mês existisse.
+Consolida o boilerplate compartilhado por cards/sets/card_prices (AUD-08) e
+corrige o bug de cadência do save_to_parquet (AUD-04): o nome do arquivo de
+staging inclui o dia da execução, então cada run diário grava seu próprio
+arquivo em vez de "pular" o mês inteiro assim que o primeiro arquivo daquele
+mês existisse.
+
+Escopo desta camada (Stage): coleta da API Scryfall + validação da ingestão +
+persistência em S3 + controle de execução. Sem CDC (a origem é uma API sem
+mecanismo de captura de alteração) e sem regra de negócio - isso é Bronze/Silver.
 """
 
 import json
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 
 import requests
 from pyspark.sql.functions import col, lit, current_timestamp, year, month, when
-from pyspark.sql.types import StructType, StructField, StringType
 
 # ponytail: em Serverless + Git source, %run às vezes executa este arquivo num
 # namespace que não herda o `dbutils` implícito do notebook. Puxa do IPython
@@ -63,53 +67,70 @@ def setup_s3_storage(base_path):
         raise Exception(f"Erro ao configurar S3 storage em '{base_path}': {e}")
 
 
-def make_api_request(endpoint, api_base_url, params=None, retries=3):
-    url = f"{api_base_url}/{endpoint}"
-
+def http_get_with_retry(url, headers=None, timeout=30, retries=3):
+    """
+    GET com retry/backoff para 429 (rate limit) e 5xx (indisponibilidade) -
+    nenhum request feito direto pelos notebooks (bulk-data/sets da Scryfall)
+    tinha isso antes: uma falha transitória derrubava a run inteira sem
+    tentar de novo. 4xx (exceto 429) não tem retry - erro do cliente, tentar
+    de novo não muda o resultado.
+    """
+    last_error = None
     for attempt in range(retries):
         try:
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:  # Rate limit
-                wait_time = min((attempt + 1) * 5, 60)
-                print(f"Rate limit atingido. Aguardando {wait_time}s...")
-                time.sleep(wait_time)
-            elif response.status_code == 503:  # Service unavailable
-                wait_time = min((attempt + 1) * 10, 120)
-                print(f"Serviço indisponível. Aguardando {wait_time}s...")
-                time.sleep(wait_time)
-            else:
-                print(f"Erro {response.status_code} na API: {response.text[:200]}")
-                if attempt < retries - 1:
-                    time.sleep(5)
-
-        except requests.exceptions.Timeout:
-            print(f"Timeout na tentativa {attempt + 1}")
+            response = requests.get(url, headers=headers, timeout=timeout)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_error = e
+            print(f"Tentativa {attempt + 1}/{retries} falhou para {url}: {e}")
             if attempt < retries - 1:
-                time.sleep(10)
-        except requests.exceptions.RequestException as e:
-            if attempt == retries - 1:
-                print(f"Erro na requisição para endpoint após {retries} tentativas: {e}")
-                return None
-            print(f"Tentativa {attempt + 1} falhou, tentando novamente...")
-            time.sleep(1)
-        except json.JSONDecodeError as e:
-            print(f"Erro ao decodificar JSON na tentativa {attempt + 1}: {e}")
-            if attempt == retries - 1:
-                return None
-            time.sleep(1)
+                time.sleep(5)
+            continue
 
-    return None
+        if response.status_code == 429:
+            wait_time = min((attempt + 1) * 5, 60)
+            print(f"Rate limit atingido em {url}. Aguardando {wait_time}s...")
+            time.sleep(wait_time)
+            last_error = requests.exceptions.HTTPError(f"429 em {url}")
+            continue
+        if response.status_code >= 500:
+            wait_time = min((attempt + 1) * 10, 120)
+            print(f"Erro {response.status_code} em {url}. Aguardando {wait_time}s...")
+            time.sleep(wait_time)
+            last_error = requests.exceptions.HTTPError(f"{response.status_code} em {url}")
+            continue
+
+        response.raise_for_status()  # 4xx: falha imediata, sem retry
+        return response
+
+    raise last_error or Exception(f"Falha ao obter {url} após {retries} tentativas")
+
+
+def get_scryfall_set_codes_since(scryfall_api_url, headers, cutoff_date_str, retries=3):
+    """
+    Códigos (lowercase) das coleções lançadas a partir de cutoff_date_str,
+    segundo o /sets da Scryfall - 1 request só, devolve o catálogo inteiro
+    (sem paginação, igual ao fetch_all_sets de sets.ipynb). Substitui a antiga
+    get_filtered_set_codes(), que ainda chamava a magicthegathering.io (bug:
+    a migração para Scryfall #121/#123/#127 nunca tinha chegado aqui).
+    """
+    response = http_get_with_retry(f"{scryfall_api_url}/sets", headers=headers, retries=retries)
+    all_sets = response.json()["data"]
+    codes = [
+        s["code"].lower() for s in all_sets
+        if s.get("code") and s.get("released_at") and s["released_at"] >= cutoff_date_str
+    ]
+    print(f"Coleções dentro da janela temporal (released_at >= {cutoff_date_str}): {len(codes)}/{len(all_sets)} sets")
+    return codes
 
 
 def save_to_parquet(spark, data, table_name, base_path, schema=None,
-                     partition_source_col=None, cutoff_date_str=None):
+                     partition_source_col=None, cutoff_date_str=None, run=None):
     """
     partition_source_col: coluna já presente no dado (ex.: 'releaseDate') usada para
         derivar partition_year/partition_month. Se None, usa a data de ingestão (agora).
     cutoff_date_str: se informado, mantém apenas registros com partition_source_col >= cutoff_date_str.
+    run: dict de start_run(), opcional - se informado, acumula files_written/
+        files_skipped/records_written nele para o controle de execução.
     """
     if not data:
         print(f"Nenhum dado para salvar na tabela {table_name}")
@@ -119,7 +140,7 @@ def save_to_parquet(spark, data, table_name, base_path, schema=None,
         df = spark.createDataFrame(data, schema) if schema else spark.createDataFrame(data)
 
         df = df.withColumn("ingestion_timestamp", current_timestamp()) \
-               .withColumn("source", lit("mtg_api")) \
+               .withColumn("source", lit("scryfall")) \
                .withColumn("endpoint", lit(table_name))
 
         if partition_source_col and partition_source_col in df.columns:
@@ -160,6 +181,8 @@ def save_to_parquet(spark, data, table_name, base_path, schema=None,
                 existing_files = dbutils.fs.ls(file_path)
                 if len(existing_files) > 0:
                     print(f"Arquivo {file_name} já existe - pulando (já ingerido hoje)")
+                    if run is not None:
+                        run["files_skipped"] = run.get("files_skipped", 0) + 1
                     continue
             except Exception:
                 pass
@@ -167,50 +190,66 @@ def save_to_parquet(spark, data, table_name, base_path, schema=None,
             partition_df.drop("partition_year", "partition_month") \
                 .write.mode("overwrite").format("parquet").save(file_path)
             print(f"Arquivo {file_name} criado com sucesso")
+            if run is not None:
+                run["files_written"] = run.get("files_written", 0) + 1
+                run["records_written"] = run.get("records_written", 0) + partition_df.count()
 
         print(f"Registros salvos como Parquet para {table_name}")
         return df
 
     except Exception as e:
         print(f"Erro ao salvar dados em {table_name}: {e}")
+        if run is not None:
+            run["error"] = str(e)
         return None
 
 
-def clean_simple_list(data, field_name):
-    """Endpoints de referência (formats/types/subtypes/supertypes) retornam uma lista plana de strings."""
-    return [{field_name: item} for item in data if isinstance(item, str)]
+# ============================================================================
+# CONTROLE DE EXECUÇÃO
+# ============================================================================
+# Um JSON por run em {base_path}/_control/{table_name}/{run_id}.json - simples
+# o bastante pra auditar (listar a pasta) sem precisar de uma tabela Delta só
+# pra isso. Cobre run_id, endpoint, parâmetros, início/fim, contagens,
+# status e erro (seção 8 do pedido de refatoração da Stage).
+
+def start_run(table_name, endpoint, params=None):
+    return {
+        "run_id": uuid.uuid4().hex[:12],
+        "table_name": table_name,
+        "origem": "scryfall",
+        "endpoint": endpoint,
+        "params": params or {},
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "status": "RUNNING",
+    }
 
 
-def ingest_reference_table(spark, endpoint, table_name, field_name, api_base_url, base_path, retries=3):
-    """
-    Ingestão genérica para tabelas de referência estáticas (formats/types/subtypes/supertypes):
-    sem filtro temporal, sem paginação, schema de coluna única.
-    """
-    print(f"Iniciando ingestão simples: {table_name}")
+def finish_run(run, base_path, status, error=None):
+    """status: SUCCESS | FAILED | PARTIAL. Grava o JSON de controle e devolve o dict."""
+    started_at = datetime.fromisoformat(run["started_at"])
+    finished_at = datetime.now(timezone.utc)
 
-    data = make_api_request(endpoint, api_base_url, retries=retries)
-    if not data or table_name not in data:
-        print(f"Falha ao obter dados de {table_name}")
-        if data:
-            print(f"Chaves disponíveis nos dados: {list(data.keys())}")
-        return None
+    run["finished_at"] = finished_at.isoformat()
+    run["duration_seconds"] = round((finished_at - started_at).total_seconds(), 1)
+    run["status"] = status
+    run["error"] = error or run.get("error")
+    run.setdefault("files_written", 0)
+    run.setdefault("files_skipped", 0)
+    run.setdefault("records_written", 0)
 
-    table_data = data[table_name]
-    print(f"Dados obtidos para {table_name}: {len(table_data)} registros")
+    control_dir = f"{base_path}/_control/{run['table_name']}"
+    control_path = f"{control_dir}/{run['run_id']}.json"
+    try:
+        dbutils.fs.mkdirs(control_dir)
+        dbutils.fs.put(control_path, json.dumps(run, default=str), overwrite=True)
+    except Exception as e:
+        # O controle de execução é observabilidade, não deve mascarar o resultado real da run.
+        print(f"Aviso: falha ao gravar controle de execução em {control_path}: {e}")
 
-    print(f"Limpando dados de {table_name}...")
-    cleaned_data = clean_simple_list(table_data, field_name)
-    print(f"Dados limpos: {len(cleaned_data)} registros")
-
-    if not cleaned_data:
-        print(f"Nenhum dado válido para {table_name}")
-        return None
-
-    schema = StructType([StructField(field_name, StringType(), True)])
-    df = save_to_parquet(spark, cleaned_data, table_name, base_path, schema=schema)
-
-    if df:
-        count = df.count()
-        print(f"{table_name}: {count} registros processados")
-        display(df.limit(5))
-    return df
+    print(
+        f"[{run['table_name']}] run={run['run_id']} status={status} "
+        f"arquivos_novos={run['files_written']} arquivos_pulados={run['files_skipped']} "
+        f"registros={run['records_written']} duracao={run['duration_seconds']}s"
+        + (f" erro={error}" if error else "")
+    )
+    return run

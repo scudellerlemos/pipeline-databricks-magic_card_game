@@ -6,7 +6,6 @@ import gzip
 import json
 import os
 import sys
-import types
 
 _NB_PATH = os.path.join(os.path.dirname(__file__), "cards.ipynb")
 
@@ -18,8 +17,8 @@ def _load_functions(fake_get):
 
     ns = {
         "json": json,
-        "requests": types.SimpleNamespace(get=fake_get),
         "gzip": gzip,
+        "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),
         "StructType": lambda fields: None,
         "StructField": lambda *a, **k: None,
         "StringType": lambda: None,
@@ -28,9 +27,10 @@ def _load_functions(fake_get):
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
         "SCRYFALL_BULK_TYPE": "default_cards",
+        "MAX_RETRIES": 3,
     }
     exec(cell_source, ns)
-    return ns["_to_card_record"], ns["fetch_cards_by_sets"], ns["fetch_valid_set_codes"]
+    return ns["_to_card_record"], ns["fetch_cards_by_sets"]
 
 
 class _Resp:
@@ -74,7 +74,7 @@ def test_fetch_cards_by_sets_filters_by_set_and_maps_fields():
         },
     ]
 
-    _, fetch_cards_by_sets, _ = _load_functions(_fake_get_for(cards))
+    _, fetch_cards_by_sets = _load_functions(_fake_get_for(cards))
     records = fetch_cards_by_sets(["lea"])
 
     assert len(records) == 1
@@ -101,7 +101,7 @@ def test_double_faced_card_falls_back_to_front_face():
         ],
     }
 
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     record = to_card_record(dfc_card)
 
     assert record["manaCost"] == "{U}"
@@ -115,7 +115,7 @@ def test_double_faced_card_empty_colors_not_treated_as_missing():
     # deve cair no fallback pra card_faces (`is not None`, não `or`).
     card = {"name": "X", "colors": [], "card_faces": [{"colors": ["R"]}]}
 
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     record = to_card_record(card)
 
     assert record["colors"] == json.dumps([])
@@ -128,7 +128,7 @@ def test_legalities_dict_is_serialized_as_valid_json():
     # via json.dumps, então o valor gravado é sempre JSON válido.
     card = {"name": "X", "legalities": {"standard": "legal", "modern": "legal"}}
 
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     record = to_card_record(card)
 
     assert json.loads(record["legalities"]) == {"standard": "legal", "modern": "legal"}
@@ -137,7 +137,7 @@ def test_legalities_dict_is_serialized_as_valid_json():
 def test_missing_scryfall_only_fields_are_none():
     # foreignNames/printings/originalText/originalType/types/subtypes/
     # multiverseid/variations não têm equivalente na Scryfall.
-    to_card_record, _, _ = _load_functions(_fake_get_for([]))
+    to_card_record, _ = _load_functions(_fake_get_for([]))
     card = {"name": "X", "set": "lea", "rarity": "common", "id": "1"}
     record = to_card_record(card)
 
@@ -147,21 +147,9 @@ def test_missing_scryfall_only_fields_are_none():
     assert record["types"] is None
 
 
-def test_fetch_valid_set_codes_filters_by_release_date():
-    # issue #129: substitui get_filtered_set_codes (magicthegathering.io,
-    # paginado) - set codes agora vêm direto da Scryfall /sets.
-    def fake_get(url, headers=None, timeout=None):
-        assert url.endswith("/sets")
-        return _Resp(json_data={"data": [
-            {"code": "lea", "released_at": "1993-08-05"},
-            {"code": "blb", "released_at": "2024-08-02"},
-            {"code": "no-date"},
-        ]})
-
-    _, _, fetch_valid_set_codes = _load_functions(fake_get)
-    codes = fetch_valid_set_codes("2020-01-01")
-
-    assert codes == ["blb"]
+# fetch_valid_set_codes ficou em ingestion_utils.py como get_scryfall_set_codes_since
+# (usa http_get_with_retry) - coberto por
+# test_get_scryfall_set_codes_since_filters_by_date_and_lowercases em test_ingestion_utils.py.
 
 
 if __name__ == "__main__":
@@ -171,5 +159,4 @@ if __name__ == "__main__":
     test_double_faced_card_empty_colors_not_treated_as_missing()
     test_legalities_dict_is_serialized_as_valid_json()
     test_missing_scryfall_only_fields_are_none()
-    test_fetch_valid_set_codes_filters_by_release_date()
     print("OK")
