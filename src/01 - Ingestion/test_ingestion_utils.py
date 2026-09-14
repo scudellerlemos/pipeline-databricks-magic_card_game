@@ -167,6 +167,40 @@ def test_finish_run_writes_control_json_when_dbutils_available():
         del ingestion_utils.dbutils
 
 
+def test_run_stage_ingestion_success_returns_df_and_success_status():
+    run_seen = {}
+
+    def ingest_fn(run):
+        run_seen["run"] = run
+        return "fake-df"
+
+    df, run = ingestion_utils.run_stage_ingestion("sets", "sets", ingest_fn, "s3://test-bucket/stage")
+
+    assert df == "fake-df"
+    assert run is run_seen["run"]  # mesmo dict passado pra ingest_fn (run mutavel via finish_run)
+    assert run["status"] == "SUCCESS"
+
+
+def test_run_stage_ingestion_none_df_marks_failed_without_raising():
+    df, run = ingestion_utils.run_stage_ingestion("sets", "sets", lambda run: None, "s3://test-bucket/stage")
+
+    assert df is None
+    assert run["status"] == "FAILED"
+    assert run["error"] is None  # sem exceção - só ingest_fn não gravou nada
+
+
+def test_run_stage_ingestion_exception_marks_failed_and_reraises():
+    def ingest_fn(run):
+        raise ValueError("boom")
+
+    try:
+        ingestion_utils.run_stage_ingestion("sets", "sets", ingest_fn, "s3://test-bucket/stage")
+    except ValueError as e:
+        assert str(e) == "boom"
+    else:
+        raise AssertionError("expected ValueError to propagate")
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_http_get_with_retry_returns_response_on_success()
@@ -177,4 +211,7 @@ if __name__ == "__main__":
     test_start_run_has_expected_shape()
     test_finish_run_without_dbutils_does_not_raise()
     test_finish_run_writes_control_json_when_dbutils_available()
+    test_run_stage_ingestion_success_returns_df_and_success_status()
+    test_run_stage_ingestion_none_df_marks_failed_without_raising()
+    test_run_stage_ingestion_exception_marks_failed_and_reraises()
     print("OK")
