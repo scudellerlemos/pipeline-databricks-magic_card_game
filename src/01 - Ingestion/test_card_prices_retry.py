@@ -7,6 +7,8 @@
 import json
 import os
 import sys
+import threading
+import time as _realtime
 import types
 
 _NB_PATH = os.path.join(os.path.dirname(__file__), "card_prices.ipynb")
@@ -22,9 +24,13 @@ def _load_get_card_price(fake_get, sleep_calls):
         "unicodedata": __import__("unicodedata"),
         "quote": __import__("urllib.parse", fromlist=["quote"]).quote,
         "datetime": __import__("datetime").datetime,
-        "time": types.SimpleNamespace(sleep=lambda s: sleep_calls.append(s)),
+        "threading": threading,
+        # SLEEP_BETWEEN=0 disables the proactive throttle's own sleeping so
+        # only the 429-backoff sleeps (asserted below) show up in sleep_calls.
+        "time": types.SimpleNamespace(sleep=lambda s: sleep_calls.append(s), monotonic=_realtime.monotonic),
         "SCRYFALL_API_URL": "https://api.scryfall.test",
         "SCRYFALL_HEADERS": {},
+        "SLEEP_BETWEEN": 0,
     }
     exec(cell_source, ns)
     return ns["get_card_price"]
@@ -71,8 +77,37 @@ def test_gives_up_after_max_retries_as_error_not_exception():
     assert len(sleep_calls) == 3
 
 
+def test_throttle_spaces_out_concurrent_calls():
+    # SLEEP_BETWEEN=0.05 here (not the module-level ns default of 0) so this
+    # test can observe real spacing without slowing the suite down much.
+    with open(_NB_PATH, encoding="utf-8") as f:
+        nb = json.load(f)
+    cell_source = "".join(nb["cells"][1]["source"])
+    ns = {
+        "requests": types.SimpleNamespace(get=lambda *a, **k: _Resp(200, {"name": "x"})),
+        "unicodedata": __import__("unicodedata"),
+        "quote": __import__("urllib.parse", fromlist=["quote"]).quote,
+        "datetime": __import__("datetime").datetime,
+        "threading": threading,
+        "time": _realtime,
+        "SCRYFALL_API_URL": "https://api.scryfall.test",
+        "SCRYFALL_HEADERS": {},
+        "SLEEP_BETWEEN": 0.05,
+    }
+    exec(cell_source, ns)
+    throttle = ns["_throttle"]
+
+    start = _realtime.monotonic()
+    for _ in range(3):
+        throttle()
+    elapsed = _realtime.monotonic() - start
+
+    assert elapsed >= 0.1, f"expected >= 0.1s for 3 throttled calls at 0.05s spacing, got {elapsed:.3f}s"
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     test_retries_on_429_then_succeeds()
     test_gives_up_after_max_retries_as_error_not_exception()
+    test_throttle_spaces_out_concurrent_calls()
     print("OK")
