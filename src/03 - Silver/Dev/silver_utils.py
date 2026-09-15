@@ -19,12 +19,12 @@ EXEMPLO DE USO NO NOTEBOOK:
 %run ./silver_utils
 
 config = create_manual_config("meu_catalog", "s3://meu-bucket")
-processor = SilverTableProcessor("TB_FATO_SILVER_CARDS", config)
+processor = SilverTableProcessor("TB_FATO_CARTAS", config)
 
-df_bronze = processor.extract_from_bronze("TB_BRONZE_CARDS")
+df_bronze = processor.extract_from_bronze("cards")
 df_silver = processor.transform_data(df_bronze, transform_function)
-processor.save_silver_table(df_silver, partition_cols=["RELEASE_YEAR", "RELEASE_MONTH"],
-                             key_column="ID_CARD", order_by_col="DT_INGESTION")
+processor.save_silver_table(df_silver, partition_cols=["Ano_ingestao_preco", "Mes_ingestao_preco"],
+                             key_column="Id_carta", order_by_col="Dt_ingestao")
 """
 
 from pyspark.sql.functions import col, hash, row_number
@@ -81,7 +81,7 @@ def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
 
     Example:
         config = create_manual_config("meu_catalog", "s3://meu-bucket")
-        processor = SilverTableProcessor("TB_FATO_SILVER_CARDS", config)
+        processor = SilverTableProcessor("TB_FATO_CARTAS", config)
     """
     return {
         'catalog_name': catalog_name,
@@ -206,6 +206,31 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
     spark_session.sql(
         f"CREATE TABLE IF NOT EXISTS {full_table_name} USING DELTA LOCATION '{delta_path}'"
     )
+
+    # Sinaliza a chave única DENTRO da tabela (pedido do usuário), pra quem
+    # abre o catalog ver sem precisar ler o notebook. COMMENT ON TABLE sempre
+    # funciona (só metadado); a constraint PRIMARY KEY é tentada best-effort
+    # por cima - Unity Catalog exige colunas NOT NULL numa PK, e algumas
+    # key_column aqui incluem coluna que pode ser NULA por desenho (ex.:
+    # data de ingestão de preço quando a carta não tem preço encontrado), o
+    # que faria a constraint falhar. DROP+ADD em vez de só ADD: idempotente
+    # entre execuções (ADD CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    if key_column:
+        key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
+        spark_session.sql(
+            f"COMMENT ON TABLE {full_table_name} IS 'Chave única: {', '.join(key_cols)}.'"
+        )
+        try:
+            pk_name = f"pk_{table_name.lower()}"
+            spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
+            spark_session.sql(
+                f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
+                f"PRIMARY KEY ({', '.join(key_cols)})"
+            )
+        except Exception as e:
+            print(f"Aviso: não foi possível declarar PRIMARY KEY em {full_table_name} "
+                  f"(provável coluna de chave aceitando NULL) - {e}")
+
     print("Dados salvos com sucesso na camada Silver!")
 
 # ============================================================================

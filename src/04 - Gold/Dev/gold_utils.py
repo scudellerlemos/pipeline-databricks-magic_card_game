@@ -211,8 +211,13 @@ def load_silver_tables(config, table_list=None):
     schema_silver = config['schema_silver']
 
     default_tables = {
-        'cards': f"{catalog}.{schema_silver}.TB_FATO_SILVER_CARDS",
-        'sets': f"{catalog}.{schema_silver}.TB_REF_SILVER_SETS",
+        # ponytail: só o nome da tabela Silver está corrigido aqui (#115/#116).
+        # As colunas dentro dela agora estão em PT-BR (Id_carta, Nme_carta...)
+        # - os 3 notebooks Gold que consomem isto ainda referenciam as
+        # colunas antigas em inglês internamente e precisam de uma
+        # atualização própria, fora do escopo desta mudança de Silver.
+        'cards': f"{catalog}.{schema_silver}.TB_FATO_CARTAS",
+        'sets': f"{catalog}.{schema_silver}.TB_DIM_COLECOES",
     }
 
     if table_list:

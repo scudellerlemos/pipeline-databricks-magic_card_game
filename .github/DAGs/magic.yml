@@ -14,13 +14,13 @@ resources:
         # ============================================================================
         - task_key: silver_cartas
           notebook_task:
-            notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDS
+            notebook_path: src/03 - Silver/Dev/TB_FATO_CARTAS
             source: GIT
           job_cluster_key: Job_cluster
 
         - task_key: silver_colecao
           notebook_task:
-            notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SETS
+            notebook_path: src/03 - Silver/Dev/TB_DIM_COLECOES
             source: GIT
           job_cluster_key: Job_cluster
 
