@@ -240,6 +240,30 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
 
     spark_session.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}")
 
+    # Dedup por key_column ANTES de decidir entre primeira carga e merge: a
+    # primeira carga escreve df_final direto (sem MERGE), então se não dedupar
+    # aqui uma key duplicada no batch de ingestão vira duplicata permanente na
+    # tabela - o MERGE de runs seguintes só dedupa o batch novo, nunca limpa
+    # duplicata que já está na tabela.
+    if key_column:
+        key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
+
+        if order_by_col and order_by_col in df_final.columns:
+            # nulls last é proposital - order_by_col nulo nunca deve vencer um valor
+            # não-nulo mais antigo por acidente.
+            # tie-break: hash das colunas restantes garante escolha determinística mesmo
+            # com order_by_col empatado; ponytail: colisão de hash é possível (não-única),
+            # revisitar com um tie-break natural (ex. coluna de ingestão) se isso doer.
+            tie_break_cols = [c for c in df_final.columns if c not in key_cols and c != order_by_col]
+            order_cols = [col(order_by_col).desc_nulls_last()]
+            if tie_break_cols:
+                order_cols.append(hash(*tie_break_cols).desc())
+            window = Window.partitionBy(*key_cols).orderBy(*order_cols)
+            df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
+                                .filter(col("_rn_dedup") == 1).drop("_rn_dedup")
+        else:
+            df_final = df_final.dropDuplicates(key_cols)
+
     files_exist = DeltaTable.isDeltaTable(spark_session, delta_path)
 
     if not files_exist:
@@ -261,22 +285,6 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
         if current_cols != new_cols:
             print(f"⚠️ Schema de {full_table_name} mudou: colunas removidas={sorted(current_cols - new_cols)}, "
                   f"colunas novas={sorted(new_cols - current_cols)}.")
-
-        if order_by_col and order_by_col in df_final.columns:
-            # nulls last é proposital - order_by_col nulo nunca deve vencer um valor
-            # não-nulo mais antigo por acidente.
-            # tie-break: hash das colunas restantes garante escolha determinística mesmo
-            # com order_by_col empatado; ponytail: colisão de hash é possível (não-única),
-            # revisitar com um tie-break natural (ex. coluna de ingestão) se isso doer.
-            tie_break_cols = [c for c in df_final.columns if c not in key_cols and c != order_by_col]
-            order_cols = [col(order_by_col).desc_nulls_last()]
-            if tie_break_cols:
-                order_cols.append(hash(*tie_break_cols).desc())
-            window = Window.partitionBy(*key_cols).orderBy(*order_cols)
-            df_final = df_final.withColumn("_rn_dedup", row_number().over(window)) \
-                                .filter(col("_rn_dedup") == 1).drop("_rn_dedup")
-        else:
-            df_final = df_final.dropDuplicates(key_cols)
 
         # <=> em vez de = : equality nula-segura, senão uma chave nula nunca daria
         # match e a linha seria reinserida a cada execução (duplicando o dado).
