@@ -7,21 +7,16 @@ Script Python para processamento da tabela TB_FATO_PRECOS_CARTAS.
 Transformacao e limpeza de dados da Bronze para Silver.
 
 CLASSIFICACAO DAMA-DMBOK: Fato - uma linha por coleta de preco de uma carta
-(grao), com medidas quantitativas (VLR_USD/VLR_EUR/VLR_TIX). Antes desta
-tabela existir, preco vivia embutido em TB_FATO_CARTAS (uma unica fato
-"fundida" cards+precos); a partir desta revisao as duas fontes sao
-Fatos independentes, e quem precisar combinar carta com preco faz o join na
-Gold por NME_CARTA (ver docstring de TB_FATO_CARTAS).
+(grao), com medidas quantitativas (VLR_USD/VLR_EUR/VLR_TIX). Fato
+independente de TB_FATO_CARTAS - quem precisar combinar carta com preco faz
+o join na Gold por NME_CARTA (ver docstring de TB_FATO_CARTAS).
 
-MOTIVO DA SEPARACAO (SILVER, nesta revisao):
-- Cards (Bronze cards) e precos (Bronze card_prices) vem de fontes
-  diferentes, com grao diferente: cards e por IMPRESSAO (ID_CARTA), preco e
-  por NOME (a Scryfall so responde preco por /cards/named?exact=<name>, sem
-  granularidade de impressao). Fundir as duas na mesma tabela obrigava
-  ID_CARTA a carregar DT_INGESTAO_PRECO na chave so por causa do historico
-  de preco, e qualquer consumidor que so queria "o que e essa carta" pagava
-  o fan-out de preco por nada. Manter cada Fato no seu proprio grao natural
-  e mais simples de entender e de consultar.
+GRAO PROPRIO: cards (Bronze cards) e precos (Bronze card_prices) vem de
+fontes diferentes, com grao diferente - cards e por IMPRESSAO (ID_CARTA),
+preco e por NOME (a Scryfall so responde preco por
+/cards/named?exact=<name>, sem granularidade de impressao). Cada Fato fica
+no seu proprio grao natural em vez de forcar ID_CARTA a carregar
+DT_INGESTAO_PRECO na chave.
 
 CHAVE UNICA: NME_CARTA + DT_INGESTAO (ver save_silver_table no fim do
 notebook). A Bronze card_prices guarda so o preco mais recente por nome
@@ -30,7 +25,7 @@ recente" muda de data a cada execucao, cada run acrescenta uma nova linha
 na Silver em vez de sobrescrever, e e assim que o historico diario de preco
 se acumula aqui.
 
-CONVENCAO DE NOME/CASE DE COLUNA (pedido do usuario): mesma de TB_FATO_CARTAS
+CONVENCAO DE NOME/CASE DE COLUNA: mesma de TB_FATO_CARTAS
 (ver docstring de la) - nome de coluna 100% MAIUSCULO, valor de atributo em
 Title_Case por palavra sem acento (normalizar_valor() em silver_utils.py),
 exceto COD_/ID_/URL_* e texto livre longo.
@@ -84,16 +79,11 @@ def transform_card_prices_silver(df):
 
     df.createOrReplaceTempView("_prices_bronze")
 
-    # Uma unica query: renomeia Bronze -> PT-BR, upper() no codigo de colecao
-    # (join-key com TB_FATO_CARTAS), cast de tipo nas colunas de preco (vem
-    # como string da Bronze), NME_FONTE cai pra 'NA' se nulo/vazio, e ja
-    # deriva ANO_INGESTAO/MES_INGESTAO a partir de DT_INGESTAO (a data da
-    # coleta em si, nao a de lancamento da colecao) - usadas so como
-    # partition_cols na gravacao. Sem coalesce para 0.0 nas colunas de preco:
-    # NULO aqui significa "sem cotacao encontrada nesta coleta", nao "vale
-    # zero". Title_Case/sem-acento de NME_CARTA/NME_RARIDADE/NME_FONTE fica
-    # pra normalizar_valores() depois (pedido do usuario: sem acento
-    # complexo dentro do SQL).
+    # Renomeia Bronze -> PT-BR, upper() no codigo de colecao (join-key com
+    # TB_FATO_CARTAS), cast de tipo nas colunas de preco (vem como string da
+    # Bronze). ANO_INGESTAO/MES_INGESTAO vem da data da coleta, nao da de
+    # lancamento da colecao. Sem coalesce para 0.0 nas colunas de preco: NULO
+    # significa "sem cotacao encontrada", nao "vale zero".
     df_final = spark.sql("""
         SELECT
             name AS NME_CARTA,

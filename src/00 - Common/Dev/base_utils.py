@@ -4,7 +4,7 @@
 # ============================================================================
 """
 Módulo base com infraestrutura comum usada por silver_utils.py e gold_utils.py:
-sessão Spark, Unity Catalog e leitura de secrets (AUD-09).
+sessão Spark, Unity Catalog e leitura de secrets.
 
 ADAPTADO PARA DATABRICKS NOTEBOOKS:
 - dbutils e spark são disponíveis globalmente nos notebooks

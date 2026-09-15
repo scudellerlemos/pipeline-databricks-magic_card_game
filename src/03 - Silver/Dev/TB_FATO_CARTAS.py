@@ -6,78 +6,45 @@
 Script Python para processamento da tabela TB_FATO_CARTAS.
 Transformação e limpeza de dados da Bronze para Silver.
 
-CLASSIFICAÇÃO DAMA-DMBOK (#116): Fato - uma linha por impressão de carta
-(grão), com medidas quantitativas (QTD_CUSTO_MANA, QTD_CORES) e chaves
-estrangeiras implícitas pra dimensões (COD_COLECAO -> TB_DIM_COLECOES). Daí o
-prefixo TB_FATO_ e o nome sem o segmento redundante "SILVER" (já implícito no
-schema silver.* do Unity Catalog).
+CLASSIFICAÇÃO DAMA-DMBOK: Fato - uma linha por impressão de carta (grão), com
+medidas quantitativas (QTD_CUSTO_MANA, QTD_CORES) e chaves estrangeiras
+implícitas pra dimensões (COD_COLECAO -> TB_DIM_COLECOES). Daí o prefixo
+TB_FATO_ e o nome sem o segmento redundante "SILVER" (já implícito no schema
+silver.* do Unity Catalog).
 
 CHAVE ÚNICA: ID_CARTA (ver save_silver_table no fim do notebook) - NOT NULL
 por natureza, então a constraint PRIMARY KEY no Unity Catalog é aplicada com
 sucesso (além do COMMENT ON TABLE sempre gravado).
 
-CONVENÇÃO DE NOME/CASE DE COLUNA (pedido do usuário): nome de coluna 100%
-MAIÚSCULO (prefixo semântico já usado no projeto - ID_/NME_/DESC_/COD_/DT_/
-QTD_/NUM_/URL_ - + resto do nome, ex.: NME_CARTA). Valor de atributo (colunas
-de nome/categoria) em Title_Case por palavra, sem acento, espaço virando "_"
-(ex.: "mana vermelha" -> "Mana_Vermelha") - ver normalizar_valor() em
-silver_utils.py. Exceção: ID_/COD_/URL_* e texto livre longo (regras/
-legalidades/nomes estrangeiros serializados) mantêm sua própria convenção de
-case - ver colunas específicas abaixo. Bronze/Ingestion continuam passthrough
-1:1 da fonte.
+CONVENÇÃO DE NOME/CASE DE COLUNA: nome de coluna 100% MAIÚSCULO (prefixo
+semântico ID_/NME_/DESC_/COD_/DT_/QTD_/NUM_/URL_ + resto do nome, ex.:
+NME_CARTA). Valor de atributo (colunas de nome/categoria) em Title_Case por
+palavra, sem acento, espaço virando "_" (ex.: "mana vermelha" ->
+"Mana_Vermelha") - ver normalizar_valor() em silver_utils.py. Exceção:
+ID_/COD_/URL_* e texto livre longo mantêm sua própria convenção de case.
+Bronze/Ingestion continuam passthrough 1:1 da fonte.
 
-USO DE SILVER_UTILS.PY:
-- Centralização de funções comuns
-- Padronização de processamento
-- Redução de código duplicado
+TRANSFORMAÇÃO DE NEGÓCIO EM SQL: toda a lógica de limpeza/derivação roda em
+uma única spark.sql() com CTEs (_renomeado -> _limpo -> _sem_delimitador ->
+SELECT final). A SELECT final precisa de uma CTE própria porque lê
+COD_CORES/DESC_CUSTO_MANA já limpos - uma coluna não pode referenciar, no
+mesmo SELECT, outra coluna calculada ali do lado.
 
-TRANSFORMAÇÃO DE NEGÓCIO EM SQL:
-- Toda a lógica de limpeza/derivação roda em uma única spark.sql() com
-  CTEs (WITH _renomeado AS (...), _limpo AS (...), _sem_delimitador AS (...)),
-  em vez de encadear .withColumn() no DataFrame API ou espalhar a
-  transformação por várias CREATE OR REPLACE TEMP VIEW - só uma CTE existe
-  fora dessa cadeia por real necessidade estrutural (uma coluna não pode
-  referenciar, no mesmo SELECT, outra coluna calculada ali do lado; a query
-  final de NME_CATEGORIA_COR/QTD_CORES precisa ler o COD_CORES/
-  DESC_CUSTO_MANA já limpos por _sem_delimitador).
+FALLBACK DE ID_ORACLE: partições da Bronze gravadas antes da coluna
+oracle_id existir não a têm - nesse caso ID_ORACLE fica NULL em vez de
+quebrar o pipeline.
 
-PADRONIZAÇÃO DE NOMES (CTE _renomeado) - AUD-20 (#135) / #115:
-- Bronze é passthrough 1:1 da Scryfall/legado (id, name, manaCost, set...).
-  A CTE _renomeado faz o SELECT explícito de toda coluna da Bronze cards pro
-  nome PT-BR final (ver CONVENÇÃO acima) - nenhuma coluna sobra sem tradução.
-- Correção de bug (achado numa revisão anterior, não fazia parte do pedido
-  original): a versão antiga tinha um bloco de fallback que checava
-  `nome_pt_br in df.columns`, onde `df` é o DataFrame CRU da Bronze (colunas
-  em inglês/camelCase). Essa checagem NUNCA era verdadeira (ex.: "NME_CARD"
-  nunca está em ["id","name","manaCost",...]), então TODA coluna de negócio
-  (nome, artista, raridade, tipo, custo de mana...) caía sempre no fallback
-  NULL, silenciosamente, em toda execução. Como _renomeado agora garante
-  (via CARDS_SCHEMA da Ingestion) que toda coluna renomeada sempre existe, o
-  bloco de fallback foi removido - ele resolvia um schema-drift que o
-  contrato da Ingestion já impede, e escondia esse bug em vez de proteger
-  contra ele. Único fallback condicional mantido: ID_ORACLE (oracle_id é
-  novo - #135 - pode faltar em partição gravada antes da mudança).
+PREÇO E MIGRAÇÃO NÃO ESTÃO AQUI: esta tabela tem grão só de "impressão de
+carta". Histórico de preço e id canônico pós-migração vivem em tabelas
+Silver próprias (TB_FATO_PRECOS_CARTAS, TB_MOV_MIGRACOES_CARTAS) - junte por
+NME_CARTA / ID_CARTA respectivamente.
 
-SEPARAÇÃO DE PREÇO E MIGRAÇÃO (#115): até esta revisão, esta tabela também
-carregava o histórico diário de preço (junção por NME_CARTA com a Bronze
-card_prices) e o id canônico pós-migração da Scryfall (Bronze migrations),
-o que forçava a chave única a incluir DT_INGESTAO_PRECO (coluna que podia
-ser NULA) e degradava a constraint PRIMARY KEY pra comentário best-effort.
-Preço e migração têm grão e cadência de atualização próprios - viraram
-tabelas Silver dedicadas (TB_FATO_PRECOS_CARTAS, TB_MOV_MIGRACOES_CARTAS),
-e esta tabela voltou a ter grão só de "impressão de carta", chave simples
-(ID_CARTA) e sem essas duas fontes na extração. Consumidores Gold que
-precisam de preço ou do id canônico pós-migração devem juntar essas tabelas
-por NME_CARTA / ID_CARTA, respectivamente.
-
-REGRA "SEM ( ) { } NO DADO SILVER" (pedido do usuário):
-- Texto de carta/custo de mana/legalidades vêm da Scryfall com notação de
-  símbolo entre chaves (ex.: "{2}{U}{U}") e texto de lembrete entre
-  parênteses (ex.: "(Add one mana of any color.)"), e legalities é um dict
-  serializado. Todos convertidos pra notação com colchetes ([...]) na CTE
-  _sem_delimitador - símbolos comuns viram um rótulo legível (ex.: "[White]"),
-  o resto (custo genérico, mana híbrida/phyrexiana, loyalty, parênteses) usa
-  um catch-all genérico que preserva o conteúdo trocando só o delimitador.
+REGRA "SEM ( ) { } NO DADO SILVER": texto de carta/custo de mana/legalidades
+vem da Scryfall com notação de símbolo entre chaves (ex.: "{2}{U}{U}") e
+texto de lembrete entre parênteses, e legalities é um dict serializado. Tudo
+convertido pra notação com colchetes ([...]) na CTE _sem_delimitador -
+símbolos comuns viram um rótulo legível (ex.: "[White]"), o resto usa um
+catch-all genérico que preserva o conteúdo trocando só o delimitador.
 """
 
 # =============================================================================
@@ -128,40 +95,26 @@ def transform_cards_silver(df):
 
     df.createOrReplaceTempView("_cards_bronze")
 
-    # CTE _renomeado: SELECT explícito Bronze crua -> nome PT-BR final (ver
-    # docstring do módulo). oracle_id é a única coluna aqui que pode não
-    # existir ainda em partições antigas da Bronze (capturada a partir de
-    # #135 na Ingestion) - fallback NULL tipado, sem quebrar o resto do
-    # pipeline; todas as outras colunas vêm do CARDS_SCHEMA da Ingestion e
-    # sempre existem (valor pode ser NULL, a coluna nunca falta).
+    # oracle_id pode não existir em partições antigas da Bronze - fallback
+    # NULL tipado evita quebrar o pipeline; as demais colunas sempre existem.
     if "oracle_id" in df.columns:
         oracle_id_select = "oracle_id AS ID_ORACLE"
     else:
-        logger.warning("Coluna oracle_id ausente na Bronze cards - ID_ORACLE ficará NULL (ver #135).")
+        logger.warning("Coluna oracle_id ausente na Bronze cards - ID_ORACLE ficará NULL.")
         oracle_id_select = "CAST(NULL AS STRING) AS ID_ORACLE"
 
-    # Uma única query com WITH (sem temp view por estágio): cada CTE resolve
-    # uma etapa da transformação e a próxima le o resultado JÁ materializado
-    # da anterior - diferente de um SELECT plano, aqui uma coluna com o mesmo
-    # nome de uma CTE anterior sempre resolve pro valor computado por ela
-    # (sem risco de reler o dado cru por engano), o que é exatamente o que
-    # a SELECT final precisa: ler COD_CORES/DESC_CUSTO_MANA JÁ
-    # limpos por _sem_delimitador, não os valores crus da Bronze.
-    # \\[ \\] \\{ \\} \\( \\) no literal SQL: Spark desfaz um backslash
-    # simples antes de um caractere sem escape reconhecido (ex.: '\\{'
-    # viraria '{', mudando o significado da regex) - dobrar o backslash na
-    # fonte Python garante que sobra um só depois do unescaping do Spark.
-    # String raw comum (não f-string): a query tem chaves literais de sobra
-    # (regex de símbolo de mana) que um f-string tentaria interpretar como
-    # placeholder - troca o único ponto variável (ID_ORACLE) por um token
-    # via .replace() depois de montar a string.
+    # WITH em CTEs (não temp views): cada CTE materializa a etapa anterior,
+    # então a SELECT final lê COD_CORES/DESC_CUSTO_MANA já limpos, não os
+    # valores crus da Bronze.
+    # Backslash duplicado no regex (\\{ etc.): Spark desfaz um \\ simples antes
+    # de resolver a string; dobrar garante que sobra um só pro regex.
+    # String raw, não f-string: a query tem chaves literais (regex de mana)
+    # que um f-string tentaria interpretar como placeholder - troca
+    # ID_ORACLE via .replace() depois de montar a string.
     query_cartas = r"""
         WITH _renomeado AS (
-            -- Bronze crua -> nome PT-BR final (ver docstring do módulo), já
-            -- com o filtro temporal (últimos 5 anos) no WHERE: como o WHERE
-            -- avalia contra a coluna da fonte (ingestion_timestamp) antes do
-            -- SELECT aplicar o alias DT_INGESTAO, dá pra fazer rename e
-            -- filtro na mesma query sem ambiguidade.
+            -- Bronze -> nome PT-BR, com filtro de 5 anos no WHERE (avalia
+            -- contra ingestion_timestamp antes do SELECT aplicar o alias).
             SELECT
                 id AS ID_CARTA,
                 __ORACLE_ID_SELECT__,
@@ -200,10 +153,8 @@ def transform_cards_silver(df):
             WHERE ingestion_timestamp >= add_months(current_date(), -60)
         ),
 
-        -- limpeza/derivação de negócio (regex/CASE - o que o SQL faz bem).
-        -- Title_Case/sem-acento NÃO entra aqui: fica pro normalizar_valores()
-        -- em Python depois que esta query inteira roda (pedido do usuário -
-        -- sem essa complexidade dentro da query).
+        -- limpeza/derivação de negócio (regex/CASE). Title_Case/sem-acento
+        -- fica pro normalizar_valores() em Python, depois desta query.
         _limpo AS (
             SELECT
                 * EXCEPT (DESC_CARTA, DESC_CUSTO_MANA, QTD_CUSTO_MANA, NME_FORCA,
@@ -214,11 +165,9 @@ def transform_cards_silver(df):
                 CASE WHEN DESC_CARTA IS NULL OR DESC_CARTA = '' THEN 'NA' ELSE trim(DESC_CARTA) END AS DESC_CARTA,
                 CASE WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = '' THEN 'NA' ELSE trim(DESC_CUSTO_MANA) END AS DESC_CUSTO_MANA,
                 coalesce(QTD_CUSTO_MANA, 0) AS QTD_CUSTO_MANA,
-                -- NME_FORCA/NME_RESISTENCIA são STRING na Bronze e podem legitimamente
-                -- valer "*", "1+*" etc. (poder/resistência variável - ex.: Tarmogoyf).
-                -- Fallback como string ('0'), não int: coalesce(STRING_COL, 0) força
-                -- um implicit cast pra BIGINT, que quebra (CAST_INVALID_INPUT) no
-                -- primeiro valor não-numérico.
+                -- NME_FORCA/NME_RESISTENCIA podem valer "*"/"1+*" (poder variável,
+                -- ex.: Tarmogoyf) - fallback '0' como string, não int (coalesce
+                -- com int forçaria cast e quebraria em valor não-numérico).
                 coalesce(NME_FORCA, '0') AS NME_FORCA,
                 coalesce(NME_RESISTENCIA, '0') AS NME_RESISTENCIA,
                 upper(COD_COLECAO) AS COD_COLECAO,  -- normaliza case: TB_DIM_COLECOES tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
@@ -249,9 +198,8 @@ def transform_cards_silver(df):
             FROM _renomeado
         ),
 
-        -- COD_CORES/DESC_SUBTIPOS colorless-default (pós-limpeza) e
-        -- eliminação de "(" ")" "{" "}" do dado Silver (pedido do usuário -
-        -- esses caracteres sinalizam dado ainda não transformado).
+        -- COD_CORES/DESC_SUBTIPOS colorless-default e eliminação de
+        -- "(" ")" "{" "}" do dado Silver (sinalizam dado não transformado).
         _sem_delimitador AS (
             SELECT
                 * EXCEPT (COD_CORES, DESC_SUBTIPOS, DESC_CARTA, DESC_CUSTO_MANA,
@@ -260,13 +208,9 @@ def transform_cards_silver(df):
                 CASE WHEN COD_CORES IS NULL OR COD_CORES = '' THEN 'Colorless' ELSE COD_CORES END AS COD_CORES,
                 CASE WHEN DESC_SUBTIPOS IS NULL OR DESC_SUBTIPOS = '' THEN 'NA' ELSE DESC_SUBTIPOS END AS DESC_SUBTIPOS,
 
-                -- DESC_CARTA: substituições nomeadas pros símbolos de mana mais
-                -- comuns (mais legível que colchete genérico), seguidas de dois
-                -- catch-alls genéricos: qualquer "{...}" restante (custo
-                -- numérico, mana híbrida {W/U}, phyrexiana {W/P}, loyalty
-                -- {+1}/{-1} - fora da lista nomeada) e qualquer "(...)" (texto
-                -- de lembrete). ponytail: não trata "{" ou "(" aninhados dentro
-                -- do mesmo tipo (não ocorre em texto de carta real da Scryfall).
+                -- DESC_CARTA: símbolos comuns viram rótulo legível ([White] etc.),
+                -- catch-all genérico cobre o resto ({...} e (...) restantes).
+                -- ponytail: não trata "{"/"(" aninhados (não ocorre em carta real).
                 regexp_replace(
                 regexp_replace(
                 regexp_replace(
@@ -318,11 +262,9 @@ def transform_cards_silver(df):
             FROM _limpo
         )
 
-        -- NME_CATEGORIA_COR/QTD_CORES (derivados de COD_CORES e
-        -- DESC_CUSTO_MANA já resolvidos por _sem_delimitador) e
-        -- ANO_INGESTAO/MES_INGESTAO (partição física, derivados de
-        -- DT_INGESTAO - #115, no lugar de ANO/MES_INGESTAO_PRECO removidos
-        -- com attach_prices).
+        -- NME_CATEGORIA_COR/QTD_CORES vêm de COD_CORES/DESC_CUSTO_MANA já
+        -- resolvidos por _sem_delimitador. ANO_INGESTAO/MES_INGESTAO são a
+        -- partição física, derivados de DT_INGESTAO.
         SELECT
             *,
             CASE
@@ -370,21 +312,16 @@ setup_unity_catalog(config['catalog_name'], config['schema_silver'])
 # =============================================================================
 # PROCESSAMENTO USANDO SILVER_UTILS
 # =============================================================================
-# Criar processor - #116: TB_FATO_CARTAS (Fato, ver docstring da célula anterior)
+# Criar processor
 processor = SilverTableProcessor("TB_FATO_CARTAS", config)
 
 # Extração da Bronze (cards) e transformação específica.
 df_cards_bronze = processor.extract_from_bronze("cards")
 df_silver = processor.transform_data(df_cards_bronze, transform_cards_silver)
 
-# Salvar na Silver com particionamento e merge incremental por ID_CARTA - #115:
-# chave voltou a ser só ID_CARTA (identificador único por impressão) desde
-# que preço e migração saíram desta tabela (ver docstring da célula
-# anterior). partition_cols por ANO_INGESTAO/MES_INGESTAO (data de coleta do
-# dado de carta, não mais de preço).
-# order_by_col=DT_INGESTAO: se o lote tiver mais de uma linha para a mesma
-# chave (reprocessamento), mantém a linha da ingestão mais recente em vez de
-# uma linha arbitrária (AUD-09).
+# Merge incremental por ID_CARTA, particionado por ANO_INGESTAO/MES_INGESTAO.
+# order_by_col=DT_INGESTAO: em reprocessamento com linha duplicada na mesma
+# chave, mantém a ingestão mais recente em vez de uma linha arbitrária.
 processor.save_silver_table(
     df_silver,
     partition_cols=["ANO_INGESTAO", "MES_INGESTAO"],

@@ -123,10 +123,8 @@ def test_double_faced_card_empty_colors_not_treated_as_missing():
 
 
 def test_legalities_dict_is_serialized_as_valid_json():
-    # issue #129: legalities na Scryfall é um dict (não list) - o clean_cards_data
-    # antigo só fazia json.dumps pra listas e caía num str(dict) (repr Python,
-    # não JSON válido) pra legalities. _to_card_record agora sempre serializa
-    # via json.dumps, então o valor gravado é sempre JSON válido.
+    # legalities na Scryfall é um dict (não list) - _to_card_record precisa
+    # serializar via json.dumps pra gravar JSON válido, não um repr Python.
     card = {"name": "X", "legalities": {"standard": "legal", "modern": "legal"}}
 
     to_card_record, _ = _load_functions(_fake_get_for([]))

@@ -1,8 +1,6 @@
-# ponytail: pure-logic self-check for _resolve_id_chain() in TB_MOV_MIGRACOES_CARTAS.ipynb
-# (issue #135 / AUD-20; relocated from TB_FATO_CARTAS.ipynb when price/migration data was
-# split out into their own Silver tables). Can't import the notebook directly (not a .py
-# module, and its other functions need a live Databricks spark session), so this mirrors
-# just the chain-resolution function under test.
+# ponytail: pure-logic self-check for _resolve_id_chain() in TB_MOV_MIGRACOES_CARTAS.ipynb.
+# Can't import the notebook directly (not a .py module, and its other functions need a
+# live Databricks spark session), so this mirrors just the chain-resolution function under test.
 
 
 def _resolve_id_chain(direct_map):
@@ -53,9 +51,9 @@ def test_independent_chains_dont_interfere():
 
 
 def _build_direct_map(rows_sorted_by_dt_and_id):
-    """Mirror of the direct_map build loop in attach_canonical_id() (issue #135
-    followup): rows must arrive pre-sorted by (ID_CARTA_ANTIGO, DT_EXECUCAO,
-    ID_MIGRACAO) - same as the .orderBy() before .collect() in the notebook."""
+    """Mirror of the direct_map build loop in attach_canonical_id(): rows must arrive
+    pre-sorted by (ID_CARTA_ANTIGO, DT_EXECUCAO, ID_MIGRACAO) - same as the
+    .orderBy() before .collect() in the notebook."""
     direct_map = {}
     for r in rows_sorted_by_dt_and_id:
         direct_map[r["ID_CARTA_ANTIGO"]] = r["ID_CARTA_NOVO"]

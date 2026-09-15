@@ -13,7 +13,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType
 
 # =============================================================================
-# FUNÇÕES COMPARTILHADAS (AUD-08: get_secret/setup_s3_storage/save_to_parquet/
+# FUNÇÕES COMPARTILHADAS (get_secret/setup_s3_storage/save_to_parquet/
 # http_get_with_retry/start_run/finish_run vivem em ingestion_utils.py)
 # =============================================================================
 
@@ -33,16 +33,13 @@ SCRYFALL_API_URL = get_secret("scryfall_api_url")
 # Scryfall rejeita o User-Agent default do requests (erro "generic_user_agent")
 SCRYFALL_HEADERS = {"User-Agent": "MTGPipeline/1.0"}
 MAX_RETRIES = int(get_secret("max_retries", "3"))
-# oracle_cards = 1 objeto por Oracle ID (deduplicado entre impressões da mesma
-# carta) - issue #121.
+# oracle_cards = 1 objeto por Oracle ID (deduplicado entre impressões da
+# mesma carta).
 SCRYFALL_BULK_TYPE = "oracle_cards"
 
-# Janela temporal: mesma fonte que cards/sets (secret years_back). Antes essa
-# janela vinha "de graça" porque card_prices só processava os nomes já
-# presentes nos arquivos de `cards` (que já eram filtrados) - lia o S3 de
-# cards pra descobrir isso, criando uma dependência de execução entre os dois
-# notebooks. Agora que card_prices grava seu próprio snapshot independente,
-# aplica o mesmo filtro por releaseDate que cards.ipynb/sets.ipynb já usam.
+# Janela temporal: mesma fonte que cards/sets (secret years_back). card_prices
+# grava seu próprio snapshot independente e aplica o mesmo filtro por
+# releaseDate que cards.py/sets.py usam, sem depender da execução deles.
 YEARS_BACK = int(get_secret("years_back", "5"))
 current_year = datetime.now().year
 cutoff_year = current_year - YEARS_BACK
@@ -89,8 +86,8 @@ def _to_price_record(card):
 
 
 def fetch_price_records():
-    # Mesmo padrão de cards.ipynb/sets.ipynb: 1 request pro índice do Bulk
-    # Data + 1 pro catálogo inteiro (issue #121), sem requisição por carta.
+    # Mesmo padrão de cards.py/sets.py: 1 request pro índice do Bulk Data +
+    # 1 pro catálogo inteiro, sem requisição por carta.
     resp = http_get_with_retry(f"{SCRYFALL_API_URL}/bulk-data", headers=SCRYFALL_HEADERS, retries=MAX_RETRIES)
     entry = next(e for e in resp.json()["data"] if e["type"] == SCRYFALL_BULK_TYPE)
 

@@ -13,7 +13,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, BooleanType
 
 # =============================================================================
-# FUNÇÕES COMPARTILHADAS (AUD-08: get_secret/setup_s3_storage/save_to_parquet/
+# FUNÇÕES COMPARTILHADAS (get_secret/setup_s3_storage/save_to_parquet/
 # http_get_with_retry/start_run/finish_run vivem em ingestion_utils.py)
 # =============================================================================
 
@@ -28,10 +28,9 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 # =============================================================================
 MAX_RETRIES = int(get_secret("max_retries", "3"))
 
-# issue #123: troca a paginação coleção-por-coleção contra magicthegathering.io
-# (1 request por página + sleep(0.5), ~8,6min pra 153 coleções - #121 já fez
-# essa troca pro card_prices) por 1 download do catálogo inteiro da Scryfall,
-# filtrado em memória pelos set_codes da janela temporal.
+# 1 download do catálogo inteiro da Scryfall, filtrado em memória pelos
+# set_codes da janela temporal - bem mais rápido que paginar coleção por
+# coleção.
 SCRYFALL_API_URL = get_secret("scryfall_api_url")
 SCRYFALL_HEADERS = {"User-Agent": "MTGPipeline/1.0"}
 # default_cards = 1 objeto por impressão (não por Oracle ID) - cards.ipynb
@@ -85,11 +84,9 @@ CARDS_SCHEMA = StructType([
     StructField("originalType", StringType(), True),
     StructField("legalities", StringType(), True),
     StructField("id", StringType(), True),
-    # issue #135 (AUD-20): oracle_id identifica a carta (Oracle) através de
-    # reimpressões - estável onde `id` (por impressão) não é. Necessário na
-    # Silver pra cruzar com Bronze migrations (old/new_scryfall_id apontam
-    # pra `id`, mas metadata_oracle_id do endpoint /migrations é o mesmo
-    # oracle_id daqui) e resolver a cadeia de merge/delete de scryfall_id.
+    # oracle_id identifica a carta (Oracle) através de reimpressões - estável
+    # onde `id` (por impressão) não é. Necessário na Silver pra cruzar com
+    # Bronze migrations e resolver a cadeia de merge/delete de scryfall_id.
     StructField("oracle_id", StringType(), True)
 ])
 
@@ -107,15 +104,10 @@ def _face_fallback(card, key):
 
 
 def _to_card_record(card):
-    # issue #129: landing zone só captura o dado bruto da Scryfall e filtra
-    # por coleção - sem tratamento/coerção de tipo adicional. A única
-    # serialização feita aqui é json.dumps pros campos compostos (list/dict),
-    # exigida pelo schema Parquet (colunas StringType não guardam estrutura
-    # aninhada), não uma limpeza de negócio.
-    #
-    # `legalities` na Scryfall é um dict (ex.: {"standard": "legal", ...}),
-    # não uma list - a antiga clean_cards_data só fazia json.dumps pra listas
-    # e caía num `str(dict)` (repr Python, não JSON válido) pra legalities.
+    # Landing zone só captura o dado bruto e filtra por coleção - sem
+    # tratamento/coerção de negócio. json.dumps serializa os campos compostos
+    # (list/dict, incluindo o dict `legalities`) pois colunas StringType do
+    # Parquet não guardam estrutura aninhada.
     image_uris = _face_fallback(card, "image_uris")
     colors = _face_fallback(card, "colors")
     color_identity = card.get("color_identity")
@@ -155,18 +147,16 @@ def _to_card_record(card):
 
 
 def fetch_cards_by_sets(valid_set_codes):
-    # Mesmo padrão do card_prices.ipynb (issue #121): 1 request pro índice do
-    # Bulk Data + 1 pro catálogo inteiro, filtrado em memória - em vez de 1
-    # request por página/coleção contra magicthegathering.io (issue #123).
-    # http_get_with_retry (ingestion_utils.py): retry/backoff em 429/5xx/timeout,
-    # nenhum dos dois requests tinha proteção nenhuma antes.
+    # 1 request pro índice do Bulk Data + 1 pro catálogo inteiro, filtrado em
+    # memória. http_get_with_retry (ingestion_utils.py) dá retry/backoff em
+    # 429/5xx/timeout nos dois.
     resp = http_get_with_retry(f"{SCRYFALL_API_URL}/bulk-data", headers=SCRYFALL_HEADERS, retries=MAX_RETRIES)
     entry = next(e for e in resp.json()["data"] if e["type"] == SCRYFALL_BULK_TYPE)
 
     raw = http_get_with_retry(entry["jsonl_download_uri"], headers=SCRYFALL_HEADERS, timeout=120, retries=MAX_RETRIES).content
     # get_scryfall_set_codes_since já devolve códigos em minúsculas e o campo
-    # `set` das cartas também é minúsculo na Scryfall (#125 era só problema
-    # com a antiga magicthegathering.io) - comparação direta, sem normalizar.
+    # `set` das cartas também é minúsculo na Scryfall - comparação direta,
+    # sem normalizar.
     valid_codes = set(valid_set_codes)
     records = []
     for line in gzip.decompress(raw).decode("utf-8").splitlines():

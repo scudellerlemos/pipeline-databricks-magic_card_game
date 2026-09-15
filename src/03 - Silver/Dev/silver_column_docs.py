@@ -13,9 +13,9 @@ Descrições voltadas pro negócio (o que a coluna significa pra quem consome o
 dado), não pra como ela foi calculada - isso já está no notebook.
 
 Cada notebook de tabela chama get_table_comment(nome)/get_column_comments(nome)
-e repassa pro save_silver_table. Não faz %run aninhado aqui (AUD-10 só resolve
-%run um nível) - importar via %run ./silver_column_docs direto no notebook,
-sem dependência de dbutils/spark (é só dado estático), mesmo padrão de
+e repassa pro save_silver_table. Não faz %run aninhado aqui (o lint estático
+só resolve %run um nível) - importar via %run ./silver_column_docs direto no
+notebook, sem dependência de dbutils/spark (é só dado estático), mesmo padrão de
 bronze_column_docs.py.
 """
 

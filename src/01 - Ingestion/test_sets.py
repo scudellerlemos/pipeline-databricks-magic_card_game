@@ -70,9 +70,8 @@ def test_fetch_all_sets_maps_fields_in_single_request():
 
 
 def test_fetch_all_sets_no_pagination_needed():
-    # bug #127: magicthegathering.io /sets sem params devolvia só a 1a
-    # página (500 de 773). A Scryfall devolve o catálogo inteiro em 1
-    # request só (has_more: false) - sem loop de paginação necessário.
+    # A Scryfall devolve o catálogo inteiro em 1 request só (has_more: false)
+    # - sem loop de paginação necessário.
     sets_data = [{"code": f"s{i}", "name": f"Set {i}", "set_type": "expansion",
                   "released_at": "2020-01-01", "digital": False} for i in range(1049)]
 

@@ -10,9 +10,8 @@ from datetime import datetime
 from pyspark.sql.types import *
 
 # =============================================================================
-# FUNÇÕES COMPARTILHADAS (AUD-08: get_secret/setup_s3_storage/http_get_with_retry/
-# save_to_parquet/start_run/finish_run agora vivem em ingestion_utils.py, junto
-# com o fix do AUD-04)
+# FUNÇÕES COMPARTILHADAS (get_secret/setup_s3_storage/http_get_with_retry/
+# save_to_parquet/start_run/finish_run vivem em ingestion_utils.py)
 # =============================================================================
 
 # COMMAND ----------
@@ -25,10 +24,8 @@ from pyspark.sql.types import *
 # CONFIGURAÇÕES GLOBAIS
 # =============================================================================
 
-# issue #127: troca /sets da magicthegathering.io (ingest_simple_data chamava
-# sem paginação - só a 1a página, 500 de 773 sets, 35% perdidos em silêncio)
-# pelo /sets da Scryfall, que devolve o catálogo inteiro (has_more=false) em
-# 1 request só - mesmo padrão já usado em cards.ipynb/card_prices.ipynb (#121/#123).
+# /sets da Scryfall devolve o catálogo inteiro (has_more=false) em 1 request
+# só - sem paginação, mesmo padrão usado em cards.py/card_prices.py.
 SCRYFALL_API_URL = get_secret("scryfall_api_url")
 SCRYFALL_HEADERS = {"User-Agent": "MTGPipeline/1.0"}
 MAX_RETRIES = int(get_secret("max_retries", "3"))
@@ -137,9 +134,8 @@ def clean_sets_data(data):
 def _to_set_record(s):
     # Campos exclusivos da magicthegathering.io (border/mkm_id/mkm_name/
     # gathererCode/magicCardsInfoCode/oldCode/booster) não têm equivalente na
-    # Scryfall - ficam None, mesmo padrão já aceito em #123/#125 pra
-    # foreignNames/printings/etc. em cards.ipynb (colunas seguem existindo,
-    # só ficam null - Bronze/Silver não quebram).
+    # Scryfall - ficam None (colunas seguem existindo, só ficam null -
+    # Bronze/Silver não quebram).
     return {
         "code": s.get("code"),
         "name": s.get("name"),

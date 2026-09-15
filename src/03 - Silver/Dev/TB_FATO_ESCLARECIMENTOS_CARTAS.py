@@ -79,17 +79,10 @@ def transform_rulings_silver(df):
 
     df.createOrReplaceTempView("_rulings_bronze")
 
-    # Uma unica query com um WITH (sem temp view): a CTE _renomeado so
-    # traduz Bronze -> PT-BR, e o SELECT externo computa o hash e as
-    # transformacoes de negocio a partir dela. ID_ESCLARECIMENTO: hash
-    # deterministico sobre as 4 colunas de negocio (ver docstring do modulo -
-    # a fonte nao fornece id proprio de registro), lido de _renomeado - ou
-    # seja, ANTES da traducao de NME_EMISSOR pra nome de negocio e da limpeza
-    # de DESC_ESCLARECIMENTO - preserva o mesmo hash entre reprocessamentos
-    # independente da ordem das colunas na lista. NME_FONTE cai pra 'NA' se
-    # nulo/vazio; Title_Case/sem-acento de NME_EMISSOR (so no ramo "else")/
-    # NME_FONTE fica pra normalizar_valores() depois (pedido do usuario: sem
-    # acento complexo dentro do SQL).
+    # CTE _renomeado so traduz Bronze -> PT-BR; o SELECT externo computa o
+    # hash e as transformacoes de negocio. ID_ESCLARECIMENTO e lido de
+    # _renomeado (antes da traducao de NME_EMISSOR e da limpeza de
+    # DESC_ESCLARECIMENTO) para manter o mesmo hash entre reprocessamentos.
     df_final = spark.sql(r"""
         WITH _renomeado AS (
             SELECT
