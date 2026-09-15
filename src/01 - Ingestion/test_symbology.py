@@ -1,7 +1,7 @@
-# ponytail: same approach as test_sets.py - the notebook's "FUNÇÕES
-# ESPECÍFICAS" cell isn't an importable module on its own, so load its
-# source straight out of the .py notebook and exec it with a fake `requests`
-# (single Scryfall /symbology response).
+# ponytail: mesma abordagem de test_sets.py - a célula "FUNÇÕES ESPECÍFICAS"
+# do notebook não é um módulo importável por si só, então carrega seu
+# código-fonte direto do notebook .py e executa com um `requests` fake
+# (resposta única do Scryfall /symbology).
 
 import json
 import os

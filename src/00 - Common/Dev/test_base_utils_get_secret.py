@@ -1,7 +1,7 @@
-# ponytail: exercises the real get_secret() from base_utils.py.
-# dbutils isn't defined outside a Databricks cluster, so the call inside
-# get_secret's try block raises NameError - caught by its own bare except,
-# which is exactly the fallback path this test wants to cover.
+# ponytail: exercita o get_secret() real de base_utils.py. dbutils não existe
+# fora de um cluster Databricks, então a chamada dentro do try de get_secret
+# levanta NameError - capturado pelo except genérico, exatamente o caminho de
+# fallback que este teste quer cobrir.
 
 import importlib.util
 import os

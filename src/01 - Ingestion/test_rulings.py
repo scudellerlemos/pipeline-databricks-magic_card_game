@@ -1,8 +1,8 @@
-# ponytail: same approach as test_card_prices.py - _to_ruling_record/
-# fetch_ruling_records live inside the notebook's "FUNÇÕES ESPECÍFICAS" cell
-# (not an importable module on its own), so this loads that cell's source
-# straight out of the .py notebook and execs it with a fake `requests`
-# (bulk-data index + gzipped jsonl payload).
+# ponytail: mesma abordagem de test_card_prices.py - _to_ruling_record/
+# fetch_ruling_records vivem dentro da célula "FUNÇÕES ESPECÍFICAS" do
+# notebook (não é um módulo importável por si só), então isto carrega o
+# código-fonte da célula direto do notebook .py e executa com um `requests`
+# fake (índice de bulk-data + payload jsonl gzipado).
 
 import gzip
 import json

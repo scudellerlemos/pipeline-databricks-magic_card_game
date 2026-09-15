@@ -1,13 +1,13 @@
-# ponytail: pure-logic self-check for the key_column/dedup branch in save_to_silver()
-# (silver_utils.py). Can't import that module directly here (it requires pyspark + a
-# live Databricks spark/dbutils session, neither available outside a cluster), so this
-# mirrors just the merge-condition logic under test.
+# ponytail: self-check de lógica pura pro branch key_column/dedup em save_to_silver()
+# (silver_utils.py). Não dá pra importar esse módulo diretamente aqui (precisa de pyspark
+# e uma sessão spark/dbutils viva do Databricks, nenhuma disponível fora de um cluster),
+# então isto espelha só a lógica de merge-condition sob teste.
 
 
 def build_merge_plan(key_column):
     key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
-    # <=> (null-safe equality): a plain "=" never matches when a key column is
-    # NULL, which would reinsert that row on every run.
+    # <=> (igualdade null-safe): um "=" simples nunca casa quando uma coluna
+    # de chave é NULL, o que reinseriria essa linha a cada execução.
     merge_condition = " AND ".join(f"silver.{k} <=> novo.{k}" for k in key_cols)
     return key_cols, merge_condition
 

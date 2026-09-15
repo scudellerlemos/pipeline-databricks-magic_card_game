@@ -1,8 +1,8 @@
-# ponytail: exercises the real functions from ingestion_utils.py directly,
-# same import-by-path pattern as test_base_utils_get_secret.py. dbutils isn't
-# defined outside a Databricks cluster, so finish_run's control-file write is
-# expected to fail silently (its own try/except) unless a fake dbutils is
-# injected on the module.
+# ponytail: exercita as funções reais de ingestion_utils.py diretamente,
+# mesmo padrão de import-by-path de test_base_utils_get_secret.py. dbutils não
+# existe fora de um cluster Databricks, então a escrita do controle em
+# finish_run deve falhar em silêncio (seu próprio try/except) a menos que um
+# dbutils fake seja injetado no módulo.
 
 import importlib.util
 import json
@@ -51,7 +51,7 @@ class _Resp:
 
 @contextmanager
 def _patch(fake_get):
-    """Swap ingestion_utils.requests.get for fake_get and time.sleep for a no-op."""
+    """Troca ingestion_utils.requests.get por fake_get e time.sleep por um no-op."""
     real_get, real_sleep = ingestion_utils.requests.get, ingestion_utils.time.sleep
     ingestion_utils.requests.get = fake_get
     ingestion_utils.time.sleep = lambda *_: None

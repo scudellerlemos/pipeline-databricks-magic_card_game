@@ -1,10 +1,10 @@
-# ponytail: pure-logic self-check for _escape_sql_string() (silver_utils.py).
-# Can't import that module directly here (needs pyspark/delta, not available
-# outside a Databricks cluster), so this mirrors just the escaping logic.
+# ponytail: self-check de lógica pura pra _escape_sql_string() (silver_utils.py).
+# Não dá pra importar esse módulo diretamente aqui (precisa de pyspark/delta,
+# indisponível fora de um cluster Databricks), então isto espelha só a lógica de escaping.
 
 
 def escape_sql_string(value):
-    """Mirror of silver_utils._escape_sql_string."""
+    """Espelho de silver_utils._escape_sql_string."""
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 

@@ -1,13 +1,14 @@
-# ponytail: pure-logic self-check for _declare_primary_key() (silver_utils.py).
-# Can't import that module directly here (it requires pyspark + a live Databricks
-# spark/dbutils session, neither available outside a cluster), so this mirrors just
-# the PK-declaration logic under test, same convention as test_silver_utils_merge_key.py.
+# ponytail: self-check de lógica pura pra _declare_primary_key() (silver_utils.py).
+# Não dá pra importar esse módulo diretamente aqui (precisa de pyspark e uma sessão
+# spark/dbutils viva do Databricks, nenhuma disponível fora de um cluster), então isto
+# espelha só a lógica de declaração de PK sob teste, mesma convenção de
+# test_silver_utils_merge_key.py.
 
 
 class FakeSpark:
-    """Records every spark.sql() call; answers the combined NULL-count + dup-count
-    SELECT from a canned {column: null_count, "__dup_count": n} map, everything
-    else is a no-op DDL call."""
+    """Registra toda chamada spark.sql(); responde o SELECT combinado de
+    contagem de NULL + contagem de duplicata a partir de um map fixo
+    {column: null_count, "__dup_count": n}, o resto é uma chamada DDL no-op."""
 
     def __init__(self, null_counts=None, dup_count=0):
         self.row = dict(null_counts or {})
@@ -30,7 +31,7 @@ class _FakeResult:
 
 
 def declare_primary_key(spark, full_table_name, table_name, key_cols):
-    """Mirror of silver_utils._declare_primary_key."""
+    """Espelho de silver_utils._declare_primary_key."""
     pk_name = f"pk_{table_name.lower()}"
 
     null_sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
