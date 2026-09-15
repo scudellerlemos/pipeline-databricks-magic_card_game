@@ -141,7 +141,8 @@ def _declare_primary_key(spark_session, full_table_name, table_name, key_cols):
 
     Unity Catalog exige que toda coluna da PK esteja NOT NULL antes de aceitar
     a constraint. Em vez de só tentar o ALTER COLUMN ... SET NOT NULL e reagir
-    ao erro genérico do engine, faz um COUNT(*) IS NULL por coluna antes -
+    ao erro genérico do engine, um único SELECT soma as linhas NULAS de cada
+    coluna de chave de uma vez (1 scan da tabela pra N colunas, em vez de N) -
     quando há violação, a mensagem já vem com a contagem exata de linhas
     quebrando a premissa de chave única, sem depender do texto de erro do
     Unity Catalog pra isso. Isso não é um erro pra só avisar e seguir: propaga
@@ -152,16 +153,19 @@ def _declare_primary_key(spark_session, full_table_name, table_name, key_cols):
     CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
     """
     pk_name = f"pk_{table_name.lower()}"
+
+    sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
+    null_counts = spark_session.sql(f"SELECT {sums} FROM {full_table_name}").collect()[0]
     for k in key_cols:
-        null_count = spark_session.sql(
-            f"SELECT count(*) AS n FROM {full_table_name} WHERE `{k}` IS NULL"
-        ).collect()[0]["n"]
+        null_count = null_counts[k] or 0
         if null_count > 0:
             raise RuntimeError(
                 f"Coluna chave '{k}' de {full_table_name} tem {null_count} linha(s) "
                 f"com valor NULO - viola a premissa de chave única desta tabela. "
                 f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
             )
+
+    for k in key_cols:
         spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
 
     spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")

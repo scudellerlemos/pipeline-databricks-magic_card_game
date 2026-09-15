@@ -58,7 +58,7 @@ Todas as colunas a partir da Silver são em PT-BR, sem acento, com a primeira le
 | Dt_ingestao_bronze | timestamp | Timestamp em que a Bronze processou o registro. | Não |
 
 ## 7. Chave Única
-`Cod_colecao`. Coluna NOT NULL por natureza (todo set tem código) - `silver_utils.save_to_silver` valida isso antes de declarar a constraint (`SELECT count(*) ... WHERE Cod_colecao IS NULL`) e só então aplica `ALTER COLUMN ... SET NOT NULL` + `PRIMARY KEY` de verdade no Unity Catalog; se algum dia houver linha com `Cod_colecao` nulo, a gravação falha com erro explícito em vez de a tabela ficar sem PK silenciosamente. `COMMENT ON TABLE` é sempre gravado, independente da PK.
+`Cod_colecao`. Coluna NOT NULL por natureza (todo set tem código) - `silver_utils.save_to_silver` valida isso antes de declarar a constraint (1 `SELECT` que soma as linhas nulas da(s) coluna(s) de chave) e só então aplica `ALTER COLUMN ... SET NOT NULL` + `PRIMARY KEY` de verdade no Unity Catalog; se algum dia houver linha com `Cod_colecao` nulo, a gravação falha com erro explícito (contagem exata) em vez de a tabela ficar sem PK silenciosamente. `COMMENT ON TABLE` é sempre gravado, independente da PK.
 
 ## 8. Regras de Implementação
 - **Filtro temporal:** não aplicado (dado de dimensão, histórico completo).
