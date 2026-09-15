@@ -89,6 +89,31 @@ notebooks — cada um só chama `run_stage_ingestion(table_name, endpoint,
 ingest_fn, S3_BASE_PATH)` e monta seu próprio relatório com o DataFrame
 devolvido).
 
+## 📄 Documentação de negócio (o que é cada tabela/coluna)
+
+A Stage grava o dado exatamente como recebido da Scryfall, sem renomear nem
+transformar coluna nenhuma (ver [Imutabilidade](#-imutabilidade) abaixo) - é o
+mesmo schema que a Bronze lê e persiste no Unity Catalog. Por isso o
+significado de negócio de cada tabela e cada coluna (o que é, pra que serve,
+que informação você tira dela) é documentado uma única vez, na Bronze, em vez
+de duplicado aqui:
+
+- **Por tabela:** [`cards`](<../02 - Bronze/Documentação/cards/README.md>),
+  [`sets`](<../02 - Bronze/Documentação/sets/README.md>),
+  [`card_prices`](<../02 - Bronze/Documentação/card_prices/README.md>),
+  [`symbology`](<../02 - Bronze/Documentação/symbology/README.md>),
+  [`rulings`](<../02 - Bronze/Documentação/rulings/README.md>),
+  [`migrations`](<../02 - Bronze/Documentação/migrations/README.md>).
+- **Fonte única (Python):** [`../02 - Bronze/Dev/bronze_column_docs.py`](<../02 - Bronze/Dev/bronze_column_docs.py>).
+
+Diferença nas colunas técnicas: a Stage grava `ingestion_timestamp`, `source`
+e `endpoint` (mesmo significado descrito nos links acima). `source_file`,
+`bronze_run_id` e `bronze_ingestion_timestamp` **não existem na Stage** - são
+adicionadas só a partir da Bronze (controle de idempotência/execução daquela
+camada). A Stage também não tem tabela no Unity Catalog (grava só Parquet no
+S3), então não há `COMMENT ON TABLE`/`ALTER COLUMN...COMMENT` aplicável aqui -
+a documentação de negócio da Stage é só este Markdown.
+
 ## ⚙️ Segredos (scope `mtg-pipeline`)
 
 ```
