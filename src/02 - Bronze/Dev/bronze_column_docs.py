@@ -79,6 +79,7 @@ BRONZE_TABLES = {
             "parent_set_code": "Código do set 'pai', quando este é um sub-set (ex.: promos de um set principal).",
             "block": "Bloco de expansão ao qual o set pertence.",
             "icon_svg_uri": "URL do ícone SVG do set.",
+            "booster": "Campo legado da magicthegathering.io (lista de booster serializada) sem equivalente na Scryfall - sempre nulo desde a migração pra Scryfall, mantido só por imutabilidade de schema. Use booster_0..booster_19 pro dado de booster atual.",
             # magicthegathering.io devolve "booster" como lista (1 tipo de
             # carta possível por slot do pacote) - a Stage explode em 1
             # coluna por posição em vez de manter array serializado.
