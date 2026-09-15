@@ -215,7 +215,6 @@ def start_bronze_run(table_name):
 
 
 def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
-    import json
     started_at = datetime.fromisoformat(run["started_at"])
     finished_at = datetime.now(timezone.utc)
 
@@ -224,13 +223,11 @@ def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
     run["status"] = status
     run["error"] = error
 
-    control_dir = f"{s3_bronze_path}/_control/{run['table']}"
-    control_path = f"{control_dir}/{run['run_id']}.json"
-    try:
-        dbutils.fs.mkdirs(control_dir)
-        dbutils.fs.put(control_path, json.dumps(run, default=str), overwrite=True)
-    except Exception as e:
-        print(f"Aviso: falha ao gravar controle de execução em {control_path}: {e}")
+    # write_control_file vem de base_utils.py (ver docstring no topo do
+    # arquivo - %run "../../00 - Common/Dev/base_utils" precisa já ter
+    # rodado no notebook chamador). Mesma lógica de escrita usada pela Stage
+    # (ingestion_utils.finish_run), só que aquele módulo não faz %run deste.
+    write_control_file(dbutils, run, s3_bronze_path, run["table"])
 
     print(
         f"[{run['table']}] run={run['run_id']} status={status} "
@@ -266,15 +263,17 @@ def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
     full_table_name = f"{catalog_name}.{schema_name}.{bronze_table_name}"
 
     try:
-        if spark.catalog.tableExists(full_table_name):
-            apply_table_documentation(spark, full_table_name, table_comment, column_comments)
-
         all_files = list_stage_files(dbutils, s3_stage_path, stage_table_name)
         already_loaded = get_already_loaded_files(spark, delta_path)
         new_files = [f for f in all_files if normalize_path(f) not in already_loaded]
         run["files_processed"] = len(new_files)
 
         if not new_files:
+            # Documenta aqui (só neste caminho) pra tabela já existente pegar
+            # comentário novo/alterado mesmo sem escrever dado novo - evita
+            # repetir a mesma chamada logo abaixo, depois do append.
+            if spark.catalog.tableExists(full_table_name):
+                apply_table_documentation(spark, full_table_name, table_comment, column_comments)
             print(f"[{bronze_table_name}] Nenhum arquivo novo da Stage - nada a fazer (idempotente).")
             finish_bronze_run(dbutils, run, s3_bronze_path, "SUCCESS")
             return None, run

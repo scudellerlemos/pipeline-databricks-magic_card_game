@@ -11,6 +11,8 @@ ADAPTADO PARA DATABRICKS NOTEBOOKS:
   %run ../../00 - Common/Dev/base_utils
 """
 
+import json
+
 # ponytail: em Serverless + Git source, %run às vezes executa este arquivo num
 # namespace que não herda o `dbutils` implícito do notebook. Puxa do IPython
 # quando isso acontece; fora de um notebook Databricks (ex.: pytest local),
@@ -109,3 +111,23 @@ def get_secret(secret_name, default_value=None, extra_safe_defaults=None):
             print(f"⚠️ Secret '{secret_name}' não encontrado e sem valor padrão")
             print(f"💡 Configure o secret ou use create_manual_config()")
             raise Exception(f"Secret '{secret_name}' not configured and no default available")
+
+# ============================================================================
+# CONTROLE DE EXECUÇÃO
+# ============================================================================
+def write_control_file(dbutils, run, base_path, table_name):
+    """
+    Grava run (dict) em {base_path}/_control/{table_name}/{run['run_id']}.json.
+
+    Observabilidade apenas - se o próprio write do controle falhar, só avisa
+    e segue (não mascara o resultado real da run). Usado por
+    bronze_utils.finish_bronze_run - a mesma lógica também existe hoje em
+    ingestion_utils.finish_run (Stage), que não faz %run deste módulo.
+    """
+    control_dir = f"{base_path}/_control/{table_name}"
+    control_path = f"{control_dir}/{run['run_id']}.json"
+    try:
+        dbutils.fs.mkdirs(control_dir)
+        dbutils.fs.put(control_path, json.dumps(run, default=str), overwrite=True)
+    except Exception as e:
+        print(f"Aviso: falha ao gravar controle de execução em {control_path}: {e}")
