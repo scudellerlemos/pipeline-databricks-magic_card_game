@@ -68,7 +68,13 @@ e decide o que gravar via idempotência de arquivo (abaixo), não via delta da A
 | `rulings.ipynb` | `bulk-data/rulings` | 1 linha por ruling (referenciada por `oracle_id`) | Sem filtro temporal, catálogo inteiro (~79k linhas) |
 | `migrations.ipynb` | `GET /migrations` | 1 linha por migração de ID | Único endpoint paginado da Stage, sem filtro temporal |
 
-Os notebooks são independentes entre si — nenhum lê o S3 gravado por outro.
+Os notebooks são independentes entre si — nenhum lê o S3 gravado por outro. No
+job `MTG_STAGE` (`.github/DAGs/stage.yml`) eles rodam em 3 pares via
+`depends_on` (cartas/precos, colecao/regras, migracoes/simbologia) só pra
+limitar a 3 tasks simultâneas no cluster de 1 worker — não é dependência de
+dado, é throttling de concorrência (o cluster já deu OOM rodando as 6 em
+paralelo).
+
 `card_prices.ipynb` já leu os arquivos de `cards.parquet` pra descobrir quais cartas
 precisava precificar (criando uma dependência de execução entre os dois); hoje ele
 grava seu próprio snapshot do catálogo `oracle_cards` filtrado pela mesma janela

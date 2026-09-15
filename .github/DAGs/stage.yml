@@ -4,27 +4,17 @@ resources:
       name: MTG_STAGE
       description: "Camada Stage - ingestao da API Scryfall para S3/Parquet"
       tasks:
-        - task_key: stage_cartas
-          notebook_task:
-            notebook_path: src/01 - Ingestion/cards
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_colecao
-          notebook_task:
-            notebook_path: src/01 - Ingestion/sets
-            source: GIT
-          job_cluster_key: Job_cluster
-
         - task_key: stage_precos
           notebook_task:
             notebook_path: src/01 - Ingestion/card_prices
             source: GIT
           job_cluster_key: Job_cluster
 
-        - task_key: stage_simbologia
+        - task_key: stage_cartas
+          depends_on:
+            - task_key: stage_precos
           notebook_task:
-            notebook_path: src/01 - Ingestion/symbology
+            notebook_path: src/01 - Ingestion/cards
             source: GIT
           job_cluster_key: Job_cluster
 
@@ -34,7 +24,23 @@ resources:
             source: GIT
           job_cluster_key: Job_cluster
 
+        - task_key: stage_colecao
+          depends_on:
+            - task_key: stage_regras
+          notebook_task:
+            notebook_path: src/01 - Ingestion/sets
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: stage_simbologia
+          notebook_task:
+            notebook_path: src/01 - Ingestion/symbology
+            source: GIT
+          job_cluster_key: Job_cluster
+
         - task_key: stage_migracoes
+          depends_on:
+            - task_key: stage_simbologia
           notebook_task:
             notebook_path: src/01 - Ingestion/migrations
             source: GIT
