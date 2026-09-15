@@ -48,7 +48,16 @@ resources:
           new_cluster:
             spark_version: "14.3.x-scala2.12"
             node_type_id: "m5d.large"
-            num_workers: 1
+            # Autoscale (nao num_workers fixo): as 6 tasks rodam em paralelo
+            # sem depends_on entre elas (ver comentario acima), diferente da
+            # Stage que precisou de depends_on em pares por OOM num cluster
+            # de 1 worker so. Bronze e mais leve (sem chamada de API, so
+            # Parquet->Delta append) - autoscale 1->2 da folga pro pico de
+            # concorrencia das 6 tasks sem manter o custo de 2 workers o
+            # tempo todo nem exigir throttling manual no yml.
+            autoscale:
+              min_workers: 1
+              max_workers: 2
             aws_attributes:
               first_on_demand: 1
               zone_id: "us-west-1a"

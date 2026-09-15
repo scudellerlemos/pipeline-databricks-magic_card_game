@@ -69,11 +69,12 @@ e decide o que gravar via idempotência de arquivo (abaixo), não via delta da A
 | `migrations.ipynb` | `GET /migrations` | 1 linha por migração de ID | Único endpoint paginado da Stage, sem filtro temporal |
 
 Os notebooks são independentes entre si — nenhum lê o S3 gravado por outro. No
-job `MTG_STAGE` (`.github/DAGs/stage.yml`) eles rodam em 3 pares via
-`depends_on` (cartas/precos, colecao/regras, migracoes/simbologia) só pra
-limitar a 3 tasks simultâneas no cluster de 1 worker — não é dependência de
-dado, é throttling de concorrência (o cluster já deu OOM rodando as 6 em
-paralelo).
+job `MTG_STAGE` (`.github/DAGs/stage.yml`) as 6 tasks rodam em paralelo, sem
+`depends_on` entre elas. Antes eram limitadas a 3 simultâneas via `depends_on`
+em pares, só por throttling de concorrência (o cluster de 1 worker fixo já
+deu OOM rodando as 6 juntas) — trocado por autoscale (1→2 workers) no cluster
+do job, que dá folga pro pico das 6 tasks em paralelo sem exigir dependência
+manual no yml nem manter o custo de 2 workers o tempo todo.
 
 `card_prices.ipynb` já leu os arquivos de `cards.parquet` pra descobrir quais cartas
 precisava precificar (criando uma dependência de execução entre os dois); hoje ele
