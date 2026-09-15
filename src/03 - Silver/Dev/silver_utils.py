@@ -28,7 +28,10 @@ processor.save_silver_table(df_silver, partition_cols=["ANO_INGESTAO", "MES_INGE
                              key_column="ID_CARTA", order_by_col="DT_INGESTAO")
 """
 
-from pyspark.sql.functions import col, hash, row_number
+import unicodedata
+
+from pyspark.sql.functions import col, hash, row_number, trim, initcap, regexp_replace, udf, when
+from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
@@ -95,25 +98,38 @@ def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
 # ============================================================================
 # NORMALIZAÇÃO DE VALOR DE ATRIBUTO (pedido do usuário)
 # Title_Case por palavra + "_" no lugar de espaço + sem acento (ex.:
-# "mana vermelha" -> "Mana_Vermelha"). SQL UDF temporária (CREATE TEMPORARY
-# FUNCTION) em vez de repetir a mesma expressão translate()+initcap() em toda
-# coluna de atributo de toda tabela Silver - registrada 1x por notebook
-# (SilverTableProcessor.__init__) e chamada só nas colunas de texto
-# categórico/nome (NÃO em Id_/Cod_/Url_ nem em texto livre longo, que têm
-# convenção de case própria - ver docstring de cada tabela).
+# "mana vermelha" -> "Mana_Vermelha"). Função pura do DataFrame API (não SQL
+# UDF) - mais simples de aplicar de uma vez, via normalizar_valores(), depois
+# que o spark.sql() de cada notebook já resolveu o resto da transformação de
+# negócio, em vez de espalhar essa lógica dentro de CASE aninhado em cada
+# query SQL. Só nas colunas de texto categórico/nome (NÃO em Id_/Cod_/Url_
+# nem em texto livre longo, que têm convenção de case própria - ver
+# docstring de cada tabela). NULL, string vazia e o sentinela 'NA' (ver
+# convenção de valor ausente de cada tabela) passam direto, sem Title-casear.
+#
+# ponytail: sem-acento via unicodedata.normalize NFKD + encode ASCII/ignore -
+# idiom padrão do stdlib pra tirar acento de qualquer caractere, em vez de um
+# mapa de tradução digitado à mão (translate()) que só cobre os caracteres
+# que alguém lembrou de listar.
 # ============================================================================
-def _register_value_normalizer(spark_session):
-    spark_session.sql("""
-        CREATE OR REPLACE TEMPORARY FUNCTION normalizar_valor(v STRING)
-        RETURNS STRING
-        RETURN CASE WHEN v IS NULL OR trim(v) = '' THEN v ELSE
-            regexp_replace(
-                initcap(translate(trim(v),
-                    'áàãâäÁÀÃÂÄéèêëÉÈÊËíìîïÍÌÎÏóòõôöÓÒÕÔÖúùûüÚÙÛÜçÇñÑ',
-                    'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUcCnN')),
-                ' ', '_')
-        END
-    """)
+def _remover_acentos(texto):
+    if texto is None:
+        return None
+    return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('ASCII')
+
+remover_acentos = udf(_remover_acentos, StringType())
+
+def normalizar_valor(coluna):
+    titulo = regexp_replace(initcap(remover_acentos(trim(coluna))), ' ', '_')
+    passa_direto = coluna.isNull() | (trim(coluna) == '') | (coluna == 'NA')
+    return when(passa_direto, coluna).otherwise(titulo)
+
+
+def normalizar_valores(df, colunas):
+    """Aplica normalizar_valor() numa lista de colunas do DataFrame, uma de cada vez."""
+    for c in colunas:
+        df = df.withColumn(c, normalizar_valor(col(c)))
+    return df
 
 # ============================================================================
 # FUNÇÕES DE EXTRAÇÃO DA BRONZE
@@ -371,7 +387,6 @@ class SilverTableProcessor:
         self.s3_silver_path = f"{self.config['s3_bucket']}/{self.config['s3_silver_prefix']}"
 
         setup_unity_catalog(self.config['catalog_name'], self.config['schema_silver'])
-        _register_value_normalizer(self.spark)
 
     def extract_from_bronze(self, bronze_table_name):
         """Extrai dados da Bronze"""

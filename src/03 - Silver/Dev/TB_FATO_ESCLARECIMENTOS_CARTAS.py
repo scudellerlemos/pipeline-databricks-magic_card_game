@@ -79,44 +79,34 @@ def transform_rulings_silver(df):
 
     df.createOrReplaceTempView("_rulings_bronze")
 
-    # Estagio 0: SELECT explicito Bronze crua -> nome PT-BR final (ver
-    # docstring do modulo) - nenhuma coluna sobra sem traducao.
-    spark.sql("""
-        CREATE OR REPLACE TEMP VIEW _rulings_stage0 AS
-        SELECT
-            oracle_id AS ID_ORACLE,
-            source AS NME_EMISSOR,
-            published_at AS DT_PUBLICACAO,
-            comment AS DESC_ESCLARECIMENTO,
-            ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
-            endpoint AS DESC_URL_ORIGEM,
-            source_file AS DESC_ARQUIVO_ORIGEM,
-            bronze_run_id AS ID_EXECUCAO_BRONZE,
-            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
-        FROM _rulings_bronze
-    """)
-
-    # Estagio 1: traducao de NME_EMISSOR pra nome de negocio, limpeza de
-    # DESC_ESCLARECIMENTO (parenteses/chaves -> colchete, mesma regra de
-    # TB_FATO_CARTAS), cast de data e derivacao de ANO_PUBLICACAO/
-    # MES_PUBLICACAO a partir de DT_PUBLICACAO - usadas so como
-    # partition_cols. ID_ESCLARECIMENTO: hash deterministico sobre as 4
-    # colunas de negocio (ver docstring do modulo - a fonte nao fornece id
-    # proprio de registro). O hash usa NME_EMISSOR/DT_PUBLICACAO/
-    # DESC_ESCLARECIMENTO como chegam do Estagio 0 (a referencia abaixo aponta
-    # pra _rulings_stage0, nao pro alias homonimo computado neste mesmo
-    # SELECT) - preserva o mesmo hash entre reprocessamentos independente da
-    # ordem das colunas na lista.
+    # Uma unica query com um WITH (sem temp view): a CTE _renomeado so
+    # traduz Bronze -> PT-BR, e o SELECT externo computa o hash e as
+    # transformacoes de negocio a partir dela. ID_ESCLARECIMENTO: hash
+    # deterministico sobre as 4 colunas de negocio (ver docstring do modulo -
+    # a fonte nao fornece id proprio de registro), lido de _renomeado - ou
+    # seja, ANTES da traducao de NME_EMISSOR pra nome de negocio e da limpeza
+    # de DESC_ESCLARECIMENTO - preserva o mesmo hash entre reprocessamentos
+    # independente da ordem das colunas na lista. NME_FONTE cai pra 'NA' se
+    # nulo/vazio; Title_Case/sem-acento de NME_EMISSOR (so no ramo "else")/
+    # NME_FONTE fica pra normalizar_valores() depois (pedido do usuario: sem
+    # acento complexo dentro do SQL).
     df_final = spark.sql(r"""
+        WITH _renomeado AS (
+            SELECT
+                oracle_id AS ID_ORACLE,
+                source AS NME_EMISSOR,
+                published_at AS DT_PUBLICACAO,
+                comment AS DESC_ESCLARECIMENTO,
+                ingestion_timestamp AS DT_INGESTAO,
+                source AS NME_FONTE,
+                endpoint AS DESC_URL_ORIGEM,
+                source_file AS DESC_ARQUIVO_ORIGEM,
+                bronze_run_id AS ID_EXECUCAO_BRONZE,
+                bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
+            FROM _rulings_bronze
+        )
         SELECT
-            -- so as colunas com transformacao real ficam explicitas (mesmo
-            -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (ID_ORACLE, linhagem etc.) ja saiu do Estagio 0 com nome
-            -- PT-BR final e so passa direto.
-            * EXCEPT (NME_EMISSOR, DT_PUBLICACAO, DESC_ESCLARECIMENTO,
-                      DT_INGESTAO, NME_FONTE),
-
+            ID_ORACLE,
             sha2(
                 concat_ws('|',
                     coalesce(ID_ORACLE, ''),
@@ -129,19 +119,28 @@ def transform_rulings_silver(df):
             CASE
                 WHEN NME_EMISSOR = 'wotc' THEN 'Wizards'
                 WHEN NME_EMISSOR = 'scryfall' THEN 'Scryfall'
-                ELSE normalizar_valor(NME_EMISSOR)
+                ELSE NME_EMISSOR
             END AS NME_EMISSOR,
             to_date(DT_PUBLICACAO) AS DT_PUBLICACAO,
-            CASE
-                WHEN DESC_ESCLARECIMENTO IS NULL OR DESC_ESCLARECIMENTO = '' THEN 'NA'
-                ELSE regexp_replace(regexp_replace(trim(DESC_ESCLARECIMENTO), '\\{([^}]*)\\}', '[$1]'), '\\(([^)]*)\\)', '[$1]')
-            END AS DESC_ESCLARECIMENTO,
+            coalesce(
+                nullif(regexp_replace(regexp_replace(trim(DESC_ESCLARECIMENTO), '\\{([^}]*)\\}', '[$1]'), '\\(([^)]*)\\)', '[$1]'), ''),
+                'NA'
+            ) AS DESC_ESCLARECIMENTO,
             to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
-            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
+            coalesce(nullif(trim(NME_FONTE), ''), 'NA') AS NME_FONTE,
+            DESC_URL_ORIGEM,
+            DESC_ARQUIVO_ORIGEM,
+            ID_EXECUCAO_BRONZE,
+            DT_INGESTAO_BRONZE,
             year(to_date(DT_PUBLICACAO)) AS ANO_PUBLICACAO,
             month(to_date(DT_PUBLICACAO)) AS MES_PUBLICACAO
-        FROM _rulings_stage0
+        FROM _renomeado
     """)
+
+    # NME_EMISSOR ja veio mapeado pra 'Wizards'/'Scryfall' nos casos
+    # conhecidos (CASE acima) - normalizar_valor() so afeta o resto (demais
+    # emissores), sem tocar nesses dois literais (nao contem espaco/acento).
+    df_final = normalizar_valores(df_final, ["NME_EMISSOR", "NME_FONTE"])
 
     logger.info(f"Transformacao Esclarecimentos de Regras concluida: {df_final.count()} registros")
     return df_final

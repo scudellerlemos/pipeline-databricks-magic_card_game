@@ -32,21 +32,26 @@ USO DE SILVER_UTILS.PY:
 - Redução de código duplicado
 
 TRANSFORMAÇÃO DE NEGÓCIO EM SQL:
-- Toda a lógica de limpeza/derivação roda via spark.sql() sobre temp views,
-  em vez de encadear .withColumn() no DataFrame API.
-- Cada view representa um estágio da transformação.
+- Toda a lógica de limpeza/derivação roda em uma única spark.sql() com
+  CTEs (WITH _renomeado AS (...), _limpo AS (...), _sem_delimitador AS (...)),
+  em vez de encadear .withColumn() no DataFrame API ou espalhar a
+  transformação por várias CREATE OR REPLACE TEMP VIEW - só uma CTE existe
+  fora dessa cadeia por real necessidade estrutural (uma coluna não pode
+  referenciar, no mesmo SELECT, outra coluna calculada ali do lado; a query
+  final de NME_CATEGORIA_COR/QTD_CORES precisa ler o COD_CORES/
+  DESC_CUSTO_MANA já limpos por _sem_delimitador).
 
-ESTÁGIO 0 (PADRONIZAÇÃO DE NOMES) - AUD-20 (#135) / #115:
+PADRONIZAÇÃO DE NOMES (CTE _renomeado) - AUD-20 (#135) / #115:
 - Bronze é passthrough 1:1 da Scryfall/legado (id, name, manaCost, set...).
-  O Estágio 0 faz o SELECT explícito de toda coluna da Bronze cards pro nome
-  PT-BR final (ver CONVENÇÃO acima) - nenhuma coluna sobra sem tradução.
-- Correção de bug (achado nesta revisão, não fazia parte do pedido original):
-  os estágios seguintes (herdados) tinham um bloco de fallback que checava
+  A CTE _renomeado faz o SELECT explícito de toda coluna da Bronze cards pro
+  nome PT-BR final (ver CONVENÇÃO acima) - nenhuma coluna sobra sem tradução.
+- Correção de bug (achado numa revisão anterior, não fazia parte do pedido
+  original): a versão antiga tinha um bloco de fallback que checava
   `nome_pt_br in df.columns`, onde `df` é o DataFrame CRU da Bronze (colunas
   em inglês/camelCase). Essa checagem NUNCA era verdadeira (ex.: "NME_CARD"
   nunca está em ["id","name","manaCost",...]), então TODA coluna de negócio
   (nome, artista, raridade, tipo, custo de mana...) caía sempre no fallback
-  NULL, silenciosamente, em toda execução. Como o Estágio 0 agora garante
+  NULL, silenciosamente, em toda execução. Como _renomeado agora garante
   (via CARDS_SCHEMA da Ingestion) que toda coluna renomeada sempre existe, o
   bloco de fallback foi removido - ele resolvia um schema-drift que o
   contrato da Ingestion já impede, e escondia esse bug em vez de proteger
@@ -69,10 +74,10 @@ REGRA "SEM ( ) { } NO DADO SILVER" (pedido do usuário):
 - Texto de carta/custo de mana/legalidades vêm da Scryfall com notação de
   símbolo entre chaves (ex.: "{2}{U}{U}") e texto de lembrete entre
   parênteses (ex.: "(Add one mana of any color.)"), e legalities é um dict
-  serializado. Todos convertidos pra notação com colchetes ([...]) no
-  Estágio 3 - símbolos comuns viram um rótulo legível (ex.: "[White]"), o
-  resto (custo genérico, mana híbrida/phyrexiana, loyalty, parênteses) usa um
-  catch-all genérico que preserva o conteúdo trocando só o delimitador.
+  serializado. Todos convertidos pra notação com colchetes ([...]) na CTE
+  _sem_delimitador - símbolos comuns viram um rótulo legível (ex.: "[White]"),
+  o resto (custo genérico, mana híbrida/phyrexiana, loyalty, parênteses) usa
+  um catch-all genérico que preserva o conteúdo trocando só o delimitador.
 """
 
 # =============================================================================
@@ -112,7 +117,8 @@ def setup_logging():
 
 def transform_cards_silver(df):
     """
-    Transformação específica para tabela Cartas, via SQL (spark.sql sobre temp views)
+    Transformação específica para tabela Cartas, via uma única spark.sql()
+    com CTEs (WITH ... AS (...)).
     """
     if not df:
         return None
@@ -122,7 +128,7 @@ def transform_cards_silver(df):
 
     df.createOrReplaceTempView("_cards_bronze")
 
-    # Estágio 0: SELECT explícito Bronze crua -> nome PT-BR final (ver
+    # CTE _renomeado: SELECT explícito Bronze crua -> nome PT-BR final (ver
     # docstring do módulo). oracle_id é a única coluna aqui que pode não
     # existir ainda em partições antigas da Bronze (capturada a partir de
     # #135 na Ingestion) - fallback NULL tipado, sem quebrar o resto do
@@ -134,210 +140,216 @@ def transform_cards_silver(df):
         logger.warning("Coluna oracle_id ausente na Bronze cards - ID_ORACLE ficará NULL (ver #135).")
         oracle_id_select = "CAST(NULL AS STRING) AS ID_ORACLE"
 
-    spark.sql(f"""
-        CREATE OR REPLACE TEMP VIEW _cards_stage0 AS
-        SELECT
-            id AS ID_CARTA,
-            {oracle_id_select},
-            name AS NME_CARTA,
-            manaCost AS DESC_CUSTO_MANA,
-            cmc AS QTD_CUSTO_MANA,
-            colors AS COD_CORES,
-            colorIdentity AS COD_IDENTIDADE_COR,
-            type AS NME_TIPO_CARTA,
-            types AS DESC_TIPOS,
-            subtypes AS DESC_SUBTIPOS,
-            rarity AS NME_RARIDADE,
-            `set` AS COD_COLECAO,
-            setName AS NME_COLECAO,
-            text AS DESC_CARTA,
-            artist AS NME_ARTISTA,
-            number AS NUM_COLECIONADOR,
-            power AS NME_FORCA,
-            toughness AS NME_RESISTENCIA,
-            layout AS NME_DISPOSICAO_CARTA,
-            multiverseid AS ID_MULTIVERSO,
-            imageUrl AS URL_IMAGEM,
-            variations AS COD_VARIACOES,
-            foreignNames AS DESC_NOMES_ESTRANGEIROS,
-            printings AS DESC_IMPRESSOES,
-            originalText AS DESC_CARTA_ORIGINAL,
-            originalType AS NME_TIPO_ORIGINAL,
-            legalities AS DESC_LEGALIDADES,
-            ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
-            endpoint AS DESC_URL_ORIGEM,
-            source_file AS DESC_ARQUIVO_ORIGEM,
-            bronze_run_id AS ID_EXECUCAO_BRONZE,
-            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
-        FROM _cards_bronze
-    """)
+    # Uma única query com WITH (sem temp view por estágio): cada CTE resolve
+    # uma etapa da transformação e a próxima le o resultado JÁ materializado
+    # da anterior - diferente de um SELECT plano, aqui uma coluna com o mesmo
+    # nome de uma CTE anterior sempre resolve pro valor computado por ela
+    # (sem risco de reler o dado cru por engano), o que é exatamente o que
+    # a SELECT final precisa: ler COD_CORES/DESC_CUSTO_MANA JÁ
+    # limpos por _sem_delimitador, não os valores crus da Bronze.
+    # \\[ \\] \\{ \\} \\( \\) no literal SQL: Spark desfaz um backslash
+    # simples antes de um caractere sem escape reconhecido (ex.: '\\{'
+    # viraria '{', mudando o significado da regex) - dobrar o backslash na
+    # fonte Python garante que sobra um só depois do unescaping do Spark.
+    # String raw comum (não f-string): a query tem chaves literais de sobra
+    # (regex de símbolo de mana) que um f-string tentaria interpretar como
+    # placeholder - troca o único ponto variável (ID_ORACLE) por um token
+    # via .replace() depois de montar a string.
+    query_cartas = r"""
+        WITH _renomeado AS (
+            -- Bronze crua -> nome PT-BR final (ver docstring do módulo), já
+            -- com o filtro temporal (últimos 5 anos) no WHERE: como o WHERE
+            -- avalia contra a coluna da fonte (ingestion_timestamp) antes do
+            -- SELECT aplicar o alias DT_INGESTAO, dá pra fazer rename e
+            -- filtro na mesma query sem ambiguidade.
+            SELECT
+                id AS ID_CARTA,
+                __ORACLE_ID_SELECT__,
+                name AS NME_CARTA,
+                manaCost AS DESC_CUSTO_MANA,
+                cmc AS QTD_CUSTO_MANA,
+                colors AS COD_CORES,
+                colorIdentity AS COD_IDENTIDADE_COR,
+                type AS NME_TIPO_CARTA,
+                types AS DESC_TIPOS,
+                subtypes AS DESC_SUBTIPOS,
+                rarity AS NME_RARIDADE,
+                `set` AS COD_COLECAO,
+                setName AS NME_COLECAO,
+                text AS DESC_CARTA,
+                artist AS NME_ARTISTA,
+                number AS NUM_COLECIONADOR,
+                power AS NME_FORCA,
+                toughness AS NME_RESISTENCIA,
+                layout AS NME_DISPOSICAO_CARTA,
+                multiverseid AS ID_MULTIVERSO,
+                imageUrl AS URL_IMAGEM,
+                variations AS COD_VARIACOES,
+                foreignNames AS DESC_NOMES_ESTRANGEIROS,
+                printings AS DESC_IMPRESSOES,
+                originalText AS DESC_CARTA_ORIGINAL,
+                originalType AS NME_TIPO_ORIGINAL,
+                legalities AS DESC_LEGALIDADES,
+                ingestion_timestamp AS DT_INGESTAO,
+                source AS NME_FONTE,
+                endpoint AS DESC_URL_ORIGEM,
+                source_file AS DESC_ARQUIVO_ORIGEM,
+                bronze_run_id AS ID_EXECUCAO_BRONZE,
+                bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
+            FROM _cards_bronze
+            WHERE ingestion_timestamp >= add_months(current_date(), -60)
+        ),
 
-    # Estágio 1: filtro temporal (últimos 5 anos). DT_INGESTAO sempre existe
-    # (coluna técnica obrigatória da Bronze) - sem fallback aqui: um NULL
-    # nela zeraria silenciosamente o filtro (WHERE NULL >= ...) e descartaria
-    # o lote inteiro sem erro, pior que um crash.
-    spark.sql("""
-        CREATE OR REPLACE TEMP VIEW _cards_stage1 AS
-        SELECT *
-        FROM _cards_stage0
-        WHERE DT_INGESTAO >= add_months(current_date(), -60)
-    """)
+        -- limpeza/derivação de negócio (regex/CASE - o que o SQL faz bem).
+        -- Title_Case/sem-acento NÃO entra aqui: fica pro normalizar_valores()
+        -- em Python depois que esta query inteira roda (pedido do usuário -
+        -- sem essa complexidade dentro da query).
+        _limpo AS (
+            SELECT
+                * EXCEPT (DESC_CARTA, DESC_CUSTO_MANA, QTD_CUSTO_MANA, NME_FORCA,
+                          NME_RESISTENCIA, COD_COLECAO, DESC_IMPRESSOES, COD_VARIACOES,
+                          COD_CORES, COD_IDENTIDADE_COR, DESC_SUBTIPOS, DESC_TIPOS,
+                          NME_TIPO_CARTA, DT_INGESTAO),
 
-    # Estágio 2: limpeza/derivação de negócio. \\[ \\] no literal SQL: Spark
-    # desfaz um backslash simples antes de um caractere sem escape
-    # reconhecido (aqui viraria '[|]|"', uma regex válida mas errada - classe
-    # de caracteres, não escape literal). Dobrar o backslash na fonte Python
-    # garante que sobra um só depois do unescaping do Spark.
-    spark.sql(r"""
-        CREATE OR REPLACE TEMP VIEW _cards_stage2 AS
-        SELECT
-            * EXCEPT (NME_CARTA, NME_ARTISTA, NME_RARIDADE, NME_COLECAO, DESC_CARTA,
-                      DESC_CUSTO_MANA, QTD_CUSTO_MANA, NME_FORCA, NME_RESISTENCIA,
-                      COD_COLECAO, DESC_IMPRESSOES, COD_VARIACOES, COD_CORES,
-                      COD_IDENTIDADE_COR, DESC_SUBTIPOS, DESC_TIPOS, NME_TIPO_CARTA,
-                      NME_TIPO_ORIGINAL, DT_INGESTAO),
+                CASE WHEN DESC_CARTA IS NULL OR DESC_CARTA = '' THEN 'NA' ELSE trim(DESC_CARTA) END AS DESC_CARTA,
+                CASE WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = '' THEN 'NA' ELSE trim(DESC_CUSTO_MANA) END AS DESC_CUSTO_MANA,
+                coalesce(QTD_CUSTO_MANA, 0) AS QTD_CUSTO_MANA,
+                -- NME_FORCA/NME_RESISTENCIA são STRING na Bronze e podem legitimamente
+                -- valer "*", "1+*" etc. (poder/resistência variável - ex.: Tarmogoyf).
+                -- Fallback como string ('0'), não int: coalesce(STRING_COL, 0) força
+                -- um implicit cast pra BIGINT, que quebra (CAST_INVALID_INPUT) no
+                -- primeiro valor não-numérico.
+                coalesce(NME_FORCA, '0') AS NME_FORCA,
+                coalesce(NME_RESISTENCIA, '0') AS NME_RESISTENCIA,
+                upper(COD_COLECAO) AS COD_COLECAO,  -- normaliza case: TB_DIM_COLECOES tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
+                regexp_replace(DESC_IMPRESSOES, '\\[|\\]|"', '') AS DESC_IMPRESSOES,
+                regexp_replace(COD_VARIACOES, '\\[|\\]|"', '') AS COD_VARIACOES,
+                regexp_replace(COD_CORES, '\\[|\\]|"', '') AS COD_CORES,
+                regexp_replace(COD_IDENTIDADE_COR, '\\[|\\]|"', '') AS COD_IDENTIDADE_COR,
+                regexp_replace(DESC_SUBTIPOS, '\\[|\\]|"', '') AS DESC_SUBTIPOS,
+                CASE WHEN DESC_TIPOS IS NULL OR DESC_TIPOS = '' THEN 'NA' ELSE DESC_TIPOS END AS DESC_TIPOS,
 
-            normalizar_valor(NME_CARTA) AS NME_CARTA,
-            normalizar_valor(NME_ARTISTA) AS NME_ARTISTA,
-            normalizar_valor(NME_RARIDADE) AS NME_RARIDADE,
-            normalizar_valor(NME_COLECAO) AS NME_COLECAO,
-            CASE WHEN DESC_CARTA IS NULL OR DESC_CARTA = '' THEN 'NA' ELSE trim(DESC_CARTA) END AS DESC_CARTA,
-            CASE WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = '' THEN 'NA' ELSE trim(DESC_CUSTO_MANA) END AS DESC_CUSTO_MANA,
-            coalesce(QTD_CUSTO_MANA, 0) AS QTD_CUSTO_MANA,
-            -- NME_FORCA/NME_RESISTENCIA são STRING na Bronze e podem legitimamente
-            -- valer "*", "1+*" etc. (poder/resistência variável - ex.: Tarmogoyf).
-            -- Fallback como string ('0'), não int: coalesce(STRING_COL, 0) força
-            -- um implicit cast pra BIGINT, que quebra (CAST_INVALID_INPUT) no
-            -- primeiro valor não-numérico. normalizar_valor() é inofensivo aqui
-            -- (sem espaço/acento pra tratar) - mantido só por consistência do
-            -- prefixo NME_.
-            normalizar_valor(coalesce(NME_FORCA, '0')) AS NME_FORCA,
-            normalizar_valor(coalesce(NME_RESISTENCIA, '0')) AS NME_RESISTENCIA,
-            upper(COD_COLECAO) AS COD_COLECAO,  -- normaliza case: TB_DIM_COLECOES tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
-            regexp_replace(DESC_IMPRESSOES, '\\[|\\]|"', '') AS DESC_IMPRESSOES,
-            regexp_replace(COD_VARIACOES, '\\[|\\]|"', '') AS COD_VARIACOES,
-            regexp_replace(COD_CORES, '\\[|\\]|"', '') AS COD_CORES,
-            regexp_replace(COD_IDENTIDADE_COR, '\\[|\\]|"', '') AS COD_IDENTIDADE_COR,
-            normalizar_valor(regexp_replace(DESC_SUBTIPOS, '\\[|\\]|"', '')) AS DESC_SUBTIPOS,
-            CASE WHEN DESC_TIPOS IS NULL OR DESC_TIPOS = '' THEN 'NA' ELSE normalizar_valor(DESC_TIPOS) END AS DESC_TIPOS,
+                -- NME_TIPO_CARTA / DESC_DETALHE_TIPO_CARTA: Planeswalker é tipo
+                -- isolado; "—" (em dash) separa tipo principal de subtipo
+                -- descritivo. As duas colunas saem da mesma origem.
+                CASE
+                    WHEN NME_TIPO_CARTA IS NULL THEN NULL
+                    WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN 'Planeswalker'
+                    WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN trim(split(NME_TIPO_CARTA, '—', 2)[0])
+                    ELSE trim(NME_TIPO_CARTA)
+                END AS NME_TIPO_CARTA,
+                CASE
+                    WHEN NME_TIPO_CARTA IS NULL THEN NULL
+                    WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN NME_TIPO_CARTA
+                    WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN trim(split(NME_TIPO_CARTA, '—', 2)[1])
+                    ELSE 'NA'
+                END AS DESC_DETALHE_TIPO_CARTA,
 
-            -- NME_TIPO_CARTA / DESC_DETALHE_TIPO_CARTA: Planeswalker é tipo
-            -- isolado; "—" (em dash) separa tipo principal de subtipo
-            -- descritivo. As duas colunas saem da mesma origem.
-            normalizar_valor(CASE
-                WHEN NME_TIPO_CARTA IS NULL THEN NULL
-                WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN 'Planeswalker'
-                WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN trim(split(NME_TIPO_CARTA, '—', 2)[0])
-                ELSE trim(NME_TIPO_CARTA)
-            END) AS NME_TIPO_CARTA,
-            CASE
-                WHEN NME_TIPO_CARTA IS NULL THEN NULL
-                WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN normalizar_valor(NME_TIPO_CARTA)
-                WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN normalizar_valor(trim(split(NME_TIPO_CARTA, '—', 2)[1]))
-                ELSE 'NA'
-            END AS DESC_DETALHE_TIPO_CARTA,
+                to_timestamp(DT_INGESTAO) AS DT_INGESTAO
+            FROM _renomeado
+        ),
 
-            normalizar_valor(NME_TIPO_ORIGINAL) AS NME_TIPO_ORIGINAL,
+        -- COD_CORES/DESC_SUBTIPOS colorless-default (pós-limpeza) e
+        -- eliminação de "(" ")" "{" "}" do dado Silver (pedido do usuário -
+        -- esses caracteres sinalizam dado ainda não transformado).
+        _sem_delimitador AS (
+            SELECT
+                * EXCEPT (COD_CORES, DESC_SUBTIPOS, DESC_CARTA, DESC_CUSTO_MANA,
+                          DESC_CARTA_ORIGINAL, DESC_LEGALIDADES, DESC_NOMES_ESTRANGEIROS),
 
-            to_timestamp(DT_INGESTAO) AS DT_INGESTAO
-        FROM _cards_stage1
-    """)
+                CASE WHEN COD_CORES IS NULL OR COD_CORES = '' THEN 'Colorless' ELSE COD_CORES END AS COD_CORES,
+                CASE WHEN DESC_SUBTIPOS IS NULL OR DESC_SUBTIPOS = '' THEN 'NA' ELSE DESC_SUBTIPOS END AS DESC_SUBTIPOS,
 
-    # Estágio 3: COD_CORES/DESC_SUBTIPOS colorless-default (pós-limpeza) e
-    # eliminação de "(" ")" "{" "}" do dado Silver (pedido do usuário - esses
-    # caracteres sinalizam dado ainda não transformado). \\{ \\} \\( \\) no
-    # literal SQL pelo mesmo motivo do Estágio 2 (Spark desfaz backslash
-    # simples antes de escape não reconhecido).
-    spark.sql(r"""
-        CREATE OR REPLACE TEMP VIEW _cards_stage3 AS
-        SELECT
-            * EXCEPT (COD_CORES, DESC_SUBTIPOS, DESC_CARTA, DESC_CUSTO_MANA,
-                      DESC_CARTA_ORIGINAL, DESC_LEGALIDADES, DESC_NOMES_ESTRANGEIROS),
+                -- DESC_CARTA: substituições nomeadas pros símbolos de mana mais
+                -- comuns (mais legível que colchete genérico), seguidas de dois
+                -- catch-alls genéricos: qualquer "{...}" restante (custo
+                -- numérico, mana híbrida {W/U}, phyrexiana {W/P}, loyalty
+                -- {+1}/{-1} - fora da lista nomeada) e qualquer "(...)" (texto
+                -- de lembrete). ponytail: não trata "{" ou "(" aninhados dentro
+                -- do mesmo tipo (não ocorre em texto de carta real da Scryfall).
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(
+                regexp_replace(DESC_CARTA, '\\{W\\}', '[White]'),
+                                    '\\{U\\}', '[Blue]'),
+                                    '\\{B\\}', '[Black]'),
+                                    '\\{R\\}', '[Red]'),
+                                    '\\{G\\}', '[Green]'),
+                                    '\\{C\\}', '[Colorless]'),
+                                    '\\{X\\}', '[X]'),
+                                    '\\{T\\}', '[Tap]'),
+                                    '\\{Q\\}', '[Untap]'),
+                                    '\\{S\\}', '[Snow]'),
+                                    '\\{E\\}', '[Energy]'),
+                                    '\\{([^}]*)\\}', '[$1]'),
+                                    '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA,
 
-            CASE WHEN COD_CORES IS NULL OR COD_CORES = '' THEN 'Colorless' ELSE COD_CORES END AS COD_CORES,
-            CASE WHEN DESC_SUBTIPOS IS NULL OR DESC_SUBTIPOS = '' THEN 'NA' ELSE DESC_SUBTIPOS END AS DESC_SUBTIPOS,
+                -- DESC_CUSTO_MANA: notação puramente simbólica (ex.: "{2}{U}{U}") -
+                -- só o catch-all genérico já resolve, sem precisar da lista nomeada.
+                regexp_replace(
+                regexp_replace(DESC_CUSTO_MANA, '\\{([^}]*)\\}', '[$1]'),
+                                                 '\\(([^)]*)\\)', '[$1]') AS DESC_CUSTO_MANA,
 
-            -- DESC_CARTA: substituições nomeadas pros símbolos de mana mais
-            -- comuns (mais legível que colchete genérico), seguidas de dois
-            -- catch-alls genéricos: qualquer "{...}" restante (custo
-            -- numérico, mana híbrida {W/U}, phyrexiana {W/P}, loyalty
-            -- {+1}/{-1} - fora da lista nomeada) e qualquer "(...)" (texto
-            -- de lembrete). ponytail: não trata "{" ou "(" aninhados dentro
-            -- do mesmo tipo (não ocorre em texto de carta real da Scryfall).
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(
-            regexp_replace(DESC_CARTA, '\\{W\\}', '[White]'),
-                                '\\{U\\}', '[Blue]'),
-                                '\\{B\\}', '[Black]'),
-                                '\\{R\\}', '[Red]'),
-                                '\\{G\\}', '[Green]'),
-                                '\\{C\\}', '[Colorless]'),
-                                '\\{X\\}', '[X]'),
-                                '\\{T\\}', '[Tap]'),
-                                '\\{Q\\}', '[Untap]'),
-                                '\\{S\\}', '[Snow]'),
-                                '\\{E\\}', '[Energy]'),
-                                '\\{([^}]*)\\}', '[$1]'),
-                                '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA,
+                -- DESC_CARTA_ORIGINAL: texto pré-errata, mesma notação de DESC_CARTA.
+                regexp_replace(
+                regexp_replace(DESC_CARTA_ORIGINAL, '\\{([^}]*)\\}', '[$1]'),
+                                                      '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA_ORIGINAL,
 
-            -- DESC_CUSTO_MANA: notação puramente simbólica (ex.: "{2}{U}{U}") -
-            -- só o catch-all genérico já resolve, sem precisar da lista nomeada.
-            regexp_replace(
-            regexp_replace(DESC_CUSTO_MANA, '\\{([^}]*)\\}', '[$1]'),
-                                             '\\(([^)]*)\\)', '[$1]') AS DESC_CUSTO_MANA,
+                -- DESC_LEGALIDADES: dict serializado (json.dumps) vindo direto da
+                -- Bronze - chaves de dict viram colchete pela mesma regra.
+                regexp_replace(
+                regexp_replace(DESC_LEGALIDADES, '\\{([^}]*)\\}', '[$1]'),
+                                                  '\\(([^)]*)\\)', '[$1]') AS DESC_LEGALIDADES,
 
-            -- DESC_CARTA_ORIGINAL: texto pré-errata, mesma notação de DESC_CARTA.
-            regexp_replace(
-            regexp_replace(DESC_CARTA_ORIGINAL, '\\{([^}]*)\\}', '[$1]'),
-                                                  '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA_ORIGINAL,
+                -- DESC_NOMES_ESTRANGEIROS: lista de dicts serializada (um dict por
+                -- idioma, sem aninhamento) - mesma regra.
+                regexp_replace(
+                regexp_replace(DESC_NOMES_ESTRANGEIROS, '\\{([^}]*)\\}', '[$1]'),
+                                                          '\\(([^)]*)\\)', '[$1]') AS DESC_NOMES_ESTRANGEIROS
+            FROM _limpo
+        )
 
-            -- DESC_LEGALIDADES: dict serializado (json.dumps) vindo direto da
-            -- Bronze - chaves de dict viram colchete pela mesma regra.
-            regexp_replace(
-            regexp_replace(DESC_LEGALIDADES, '\\{([^}]*)\\}', '[$1]'),
-                                              '\\(([^)]*)\\)', '[$1]') AS DESC_LEGALIDADES,
-
-            -- DESC_NOMES_ESTRANGEIROS: lista de dicts serializada (um dict por
-            -- idioma, sem aninhamento) - mesma regra.
-            regexp_replace(
-            regexp_replace(DESC_NOMES_ESTRANGEIROS, '\\{([^}]*)\\}', '[$1]'),
-                                                      '\\(([^)]*)\\)', '[$1]') AS DESC_NOMES_ESTRANGEIROS
-        FROM _cards_stage2
-    """)
-
-    # Estágio 4: NME_CATEGORIA_COR/QTD_CORES (derivados de COD_CORES e
-    # DESC_CUSTO_MANA já resolvidos nos estágios anteriores) e
-    # ANO_INGESTAO/MES_INGESTAO (partição física, derivados de DT_INGESTAO -
-    # #115, no lugar de ANO/MES_INGESTAO_PRECO removidos com attach_prices).
-    df_silver = spark.sql("""
+        -- NME_CATEGORIA_COR/QTD_CORES (derivados de COD_CORES e
+        -- DESC_CUSTO_MANA já resolvidos por _sem_delimitador) e
+        -- ANO_INGESTAO/MES_INGESTAO (partição física, derivados de
+        -- DT_INGESTAO - #115, no lugar de ANO/MES_INGESTAO_PRECO removidos
+        -- com attach_prices).
         SELECT
             *,
-            normalizar_valor(CASE
+            CASE
                 WHEN COD_CORES = 'Colorless' THEN 'Colorless'
                 WHEN size(split(COD_CORES, ',')) = 1 THEN 'Mono'
                 WHEN size(split(COD_CORES, ',')) = 2 THEN 'Dual Color'
                 WHEN size(split(COD_CORES, ',')) >= 3 THEN 'Multicolor'
                 ELSE 'Mono'
-            END) AS NME_CATEGORIA_COR,
+            END AS NME_CATEGORIA_COR,
             CASE
                 WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = 'NA' THEN 0
                 ELSE length(regexp_replace(upper(DESC_CUSTO_MANA), '[^WUBRG]', ''))
             END AS QTD_CORES,
             year(DT_INGESTAO) AS ANO_INGESTAO,
             month(DT_INGESTAO) AS MES_INGESTAO
-        FROM _cards_stage3
-    """)
+        FROM _sem_delimitador
+    """
+    df_silver = spark.sql(query_cartas.replace("__ORACLE_ID_SELECT__", oracle_id_select))
+
+    # Title_Case/"_"/sem-acento (ver normalizar_valor() em silver_utils.py),
+    # de uma vez só, depois que a query acima já resolveu todo o resto.
+    df_silver = normalizar_valores(df_silver, [
+        "NME_CARTA", "NME_ARTISTA", "NME_RARIDADE", "NME_COLECAO",
+        "NME_FORCA", "NME_RESISTENCIA", "DESC_SUBTIPOS", "DESC_TIPOS",
+        "NME_TIPO_CARTA", "DESC_DETALHE_TIPO_CARTA", "NME_TIPO_ORIGINAL",
+        "NME_CATEGORIA_COR",
+    ])
 
     logger.info(f"Transformação Cartas concluída: {df_silver.count()} registros")
     return df_silver

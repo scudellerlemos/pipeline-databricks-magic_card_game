@@ -84,58 +84,39 @@ def transform_card_prices_silver(df):
 
     df.createOrReplaceTempView("_prices_bronze")
 
-    # Estagio 0: SELECT explicito Bronze crua -> nome PT-BR final (ver
-    # docstring do modulo) - nenhuma coluna sobra sem traducao.
-    spark.sql("""
-        CREATE OR REPLACE TEMP VIEW _prices_stage0 AS
+    # Uma unica query: renomeia Bronze -> PT-BR, upper() no codigo de colecao
+    # (join-key com TB_FATO_CARTAS), cast de tipo nas colunas de preco (vem
+    # como string da Bronze), NME_FONTE cai pra 'NA' se nulo/vazio, e ja
+    # deriva ANO_INGESTAO/MES_INGESTAO a partir de DT_INGESTAO (a data da
+    # coleta em si, nao a de lancamento da colecao) - usadas so como
+    # partition_cols na gravacao. Sem coalesce para 0.0 nas colunas de preco:
+    # NULO aqui significa "sem cotacao encontrada nesta coleta", nao "vale
+    # zero". Title_Case/sem-acento de NME_CARTA/NME_RARIDADE/NME_FONTE fica
+    # pra normalizar_valores() depois (pedido do usuario: sem acento
+    # complexo dentro do SQL).
+    df_final = spark.sql("""
         SELECT
             name AS NME_CARTA,
-            `set` AS COD_COLECAO,
+            upper(`set`) AS COD_COLECAO,
             rarity AS NME_RARIDADE,
-            usd AS VLR_USD,
-            eur AS VLR_EUR,
-            tix AS VLR_TIX,
+            cast(usd AS float) AS VLR_USD,
+            cast(eur AS float) AS VLR_EUR,
+            cast(tix AS float) AS VLR_TIX,
             scryfall_uri AS URL_SCRYFALL,
             image_url AS URL_IMAGEM,
-            releaseDate AS DT_LANCAMENTO,
-            ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
+            to_date(releaseDate) AS DT_LANCAMENTO,
+            to_timestamp(ingestion_timestamp) AS DT_INGESTAO,
+            coalesce(nullif(trim(source), ''), 'NA') AS NME_FONTE,
             endpoint AS DESC_URL_ORIGEM,
             source_file AS DESC_ARQUIVO_ORIGEM,
             bronze_run_id AS ID_EXECUCAO_BRONZE,
-            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE,
+            year(to_timestamp(ingestion_timestamp)) AS ANO_INGESTAO,
+            month(to_timestamp(ingestion_timestamp)) AS MES_INGESTAO
         FROM _prices_bronze
     """)
 
-    # Estagio 1: padronizacao (Title_Case via normalizar_valor() / upper),
-    # cast de tipo nas colunas de preco (vem como string da Bronze) e
-    # derivacao de ANO_INGESTAO/MES_INGESTAO a partir de DT_INGESTAO (a data
-    # da coleta em si, nao a de lancamento da colecao) - usadas so como
-    # partition_cols na gravacao. Sem coalesce para 0.0 nas colunas de preco:
-    # NULO aqui significa "sem cotacao encontrada nesta coleta", nao "vale
-    # zero".
-    df_final = spark.sql("""
-        SELECT
-            -- so as colunas com transformacao real ficam explicitas (mesmo
-            -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (urls, linhagem etc.) ja saiu do Estagio 0 com nome PT-BR
-            -- final e so passa direto.
-            * EXCEPT (NME_CARTA, COD_COLECAO, NME_RARIDADE, VLR_USD, VLR_EUR,
-                      VLR_TIX, DT_LANCAMENTO, DT_INGESTAO, NME_FONTE),
-
-            normalizar_valor(NME_CARTA) AS NME_CARTA,
-            upper(COD_COLECAO) AS COD_COLECAO,
-            normalizar_valor(NME_RARIDADE) AS NME_RARIDADE,
-            cast(VLR_USD AS float) AS VLR_USD,
-            cast(VLR_EUR AS float) AS VLR_EUR,
-            cast(VLR_TIX AS float) AS VLR_TIX,
-            to_date(DT_LANCAMENTO) AS DT_LANCAMENTO,
-            to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
-            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
-            year(to_timestamp(DT_INGESTAO)) AS ANO_INGESTAO,
-            month(to_timestamp(DT_INGESTAO)) AS MES_INGESTAO
-        FROM _prices_stage0
-    """)
+    df_final = normalizar_valores(df_final, ["NME_CARTA", "NME_RARIDADE", "NME_FONTE"])
 
     logger.info(f"Transformacao Precos de Cartas concluida: {df_final.count()} registros")
     return df_final

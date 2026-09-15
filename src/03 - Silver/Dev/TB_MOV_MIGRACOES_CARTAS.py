@@ -115,63 +115,47 @@ def transform_migrations_silver(df):
 
     df.createOrReplaceTempView("_migrations_bronze")
 
-    # Estagio 0: SELECT explicito Bronze crua -> nome PT-BR final (ver
-    # docstring do modulo) - nenhuma coluna sobra sem traducao.
-    spark.sql("""
-        CREATE OR REPLACE TEMP VIEW _migrations_stage0 AS
+    # Uma unica query: renomeia Bronze -> PT-BR, traduz
+    # NME_ESTRATEGIA_MIGRACAO pra termo de negocio, limpa DESC_NOTA (NA
+    # quando vazio + parenteses -> colchete, mesma regra de TB_FATO_CARTAS),
+    # cast de data e ja deriva ANO_EXECUCAO/MES_EXECUCAO a partir de
+    # DT_EXECUCAO - usadas so como partition_cols. Title_Case/sem-acento de
+    # NME_CARTA_ASSOCIADA/NME_FONTE fica pra normalizar_valores() depois
+    # (pedido do usuario: sem acento complexo dentro do SQL).
+    df_final = spark.sql(r"""
         SELECT
             id AS ID_MIGRACAO,
             uri AS URL_SCRYFALL,
-            performed_at AS DT_EXECUCAO,
-            migration_strategy AS NME_ESTRATEGIA_MIGRACAO,
+            to_date(performed_at) AS DT_EXECUCAO,
+            CASE
+                WHEN migration_strategy = 'merge' THEN 'Unificacao'
+                WHEN migration_strategy = 'delete' THEN 'Remocao'
+                ELSE migration_strategy
+            END AS NME_ESTRATEGIA_MIGRACAO,
             old_scryfall_id AS ID_CARTA_ANTIGO,
             new_scryfall_id AS ID_CARTA_NOVO,
-            note AS DESC_NOTA,
+            coalesce(
+                nullif(regexp_replace(regexp_replace(trim(note), '\\(([^)]*)\\)', '[$1]'), '\\{([^}]*)\\}', '[$1]'), ''),
+                'NA'
+            ) AS DESC_NOTA,
             metadata_id AS ID_CARTA_ASSOCIADA,
             metadata_lang AS COD_IDIOMA,
             metadata_name AS NME_CARTA_ASSOCIADA,
             metadata_set_code AS COD_COLECAO_ASSOCIADA,
             metadata_oracle_id AS ID_ORACLE_ASSOCIADO,
             metadata_collector_number AS NUM_COLECIONADOR_ASSOCIADO,
-            ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
+            to_timestamp(ingestion_timestamp) AS DT_INGESTAO,
+            coalesce(nullif(trim(source), ''), 'NA') AS NME_FONTE,
             endpoint AS DESC_URL_ORIGEM,
             source_file AS DESC_ARQUIVO_ORIGEM,
             bronze_run_id AS ID_EXECUCAO_BRONZE,
-            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE,
+            year(to_date(performed_at)) AS ANO_EXECUCAO,
+            month(to_date(performed_at)) AS MES_EXECUCAO
         FROM _migrations_bronze
     """)
 
-    # Estagio 1: traducao de NME_ESTRATEGIA_MIGRACAO pra termo de negocio,
-    # limpeza de DESC_NOTA (NA quando vazio + parenteses -> colchete, mesma
-    # regra de TB_FATO_CARTAS), cast de data e derivacao de ANO_EXECUCAO/
-    # MES_EXECUCAO a partir de DT_EXECUCAO - usadas so como partition_cols.
-    df_final = spark.sql(r"""
-        SELECT
-            -- so as colunas com transformacao real ficam explicitas (mesmo
-            -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (ids/colunas associadas, linhagem etc.) ja saiu do Estagio 0
-            -- com nome PT-BR final e so passa direto.
-            * EXCEPT (DT_EXECUCAO, NME_ESTRATEGIA_MIGRACAO, DESC_NOTA,
-                      DT_INGESTAO, NME_FONTE, NME_CARTA_ASSOCIADA),
-
-            to_date(DT_EXECUCAO) AS DT_EXECUCAO,
-            CASE
-                WHEN NME_ESTRATEGIA_MIGRACAO = 'merge' THEN 'Unificacao'
-                WHEN NME_ESTRATEGIA_MIGRACAO = 'delete' THEN 'Remocao'
-                ELSE NME_ESTRATEGIA_MIGRACAO
-            END AS NME_ESTRATEGIA_MIGRACAO,
-            CASE
-                WHEN DESC_NOTA IS NULL OR DESC_NOTA = '' THEN 'NA'
-                ELSE regexp_replace(regexp_replace(trim(DESC_NOTA), '\\(([^)]*)\\)', '[$1]'), '\\{([^}]*)\\}', '[$1]')
-            END AS DESC_NOTA,
-            to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
-            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
-            normalizar_valor(NME_CARTA_ASSOCIADA) AS NME_CARTA_ASSOCIADA,
-            year(to_date(DT_EXECUCAO)) AS ANO_EXECUCAO,
-            month(to_date(DT_EXECUCAO)) AS MES_EXECUCAO
-        FROM _migrations_stage0
-    """)
+    df_final = normalizar_valores(df_final, ["NME_CARTA_ASSOCIADA", "NME_FONTE"])
 
     logger.info(f"Transformacao Migracoes de Id de Cartas concluida: {df_final.count()} registros")
     return df_final

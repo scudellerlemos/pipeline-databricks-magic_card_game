@@ -26,7 +26,7 @@ REGRA "SEM ( ) { } NO DADO SILVER" - APLICADA SEM EXCECAO A COD_SIMBOLO:
   tabela, e a Gold nao conseguiria juntar um token extraido do texto da
   carta contra COD_SIMBOLO sem antes reconverter a notacao. COD_SIMBOLO
   NUNCA recebe normalizar_valor()/Title_Case - so a conversao de chave, sem
-  excecao (ver Estagio 1).
+  excecao (ver transform_symbology_silver abaixo).
 
 CONVENCAO DE NOME/CASE DE COLUNA (pedido do usuario): mesma de TB_FATO_CARTAS
 (ver docstring de la) - nome de coluna 100% MAIUSCULO, valor de atributo em
@@ -87,15 +87,19 @@ def transform_symbology_silver(df):
 
     df.createOrReplaceTempView("_symbology_bronze")
 
-    # Estagio 0: SELECT explicito Bronze crua -> nome PT-BR final (ver
-    # docstring do modulo) - nenhuma coluna sobra sem traducao.
-    spark.sql("""
-        CREATE OR REPLACE TEMP VIEW _symbology_stage0 AS
+    # Uma unica query: renomeia Bronze -> PT-BR, ja converte chave pra
+    # colchete em COD_SIMBOLO (ver docstring do modulo - regra sem excecao,
+    # NUNCA normalizar_valor() aqui) e limpa array serializado em
+    # COD_CORES/DESC_GRAFIAS_GATHERER (mesma regra de TB_FATO_CARTAS).
+    # NME_FONTE/DESC_VARIANTE_LIVRE/DESC_SIMBOLO caem pra 'NA' se
+    # nulo/vazio - Title_Case/sem-acento fica pra normalizar_valores()
+    # depois (pedido do usuario: sem acento complexo dentro do SQL).
+    df_final = spark.sql(r"""
         SELECT
-            symbol AS COD_SIMBOLO,
+            regexp_replace(regexp_replace(symbol, '\\{', '['), '\\}', ']') AS COD_SIMBOLO,
             svg_uri AS URL_ICONE,
-            loose_variant AS DESC_VARIANTE_LIVRE,
-            english AS DESC_SIMBOLO,
+            coalesce(nullif(trim(loose_variant), ''), 'NA') AS DESC_VARIANTE_LIVRE,
+            coalesce(nullif(trim(english), ''), 'NA') AS DESC_SIMBOLO,
             transposable AS FLG_TRANSPONIVEL,
             represents_mana AS FLG_REPRESENTA_MANA,
             appears_in_mana_costs AS FLG_APARECE_CUSTO_MANA,
@@ -104,10 +108,10 @@ def transform_symbology_silver(df):
             phyrexian AS FLG_PHYREXIANO,
             cmc AS QTD_CUSTO_CONVERTIDO,
             funny AS FLG_HUMORISTICO,
-            colors AS COD_CORES,
-            gatherer_alternates AS DESC_GRAFIAS_GATHERER,
-            ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
+            regexp_replace(colors, '\\[|\\]|"', '') AS COD_CORES,
+            regexp_replace(gatherer_alternates, '\\[|\\]|"', '') AS DESC_GRAFIAS_GATHERER,
+            to_timestamp(ingestion_timestamp) AS DT_INGESTAO,
+            coalesce(nullif(trim(source), ''), 'NA') AS NME_FONTE,
             endpoint AS DESC_URL_ORIGEM,
             source_file AS DESC_ARQUIVO_ORIGEM,
             bronze_run_id AS ID_EXECUCAO_BRONZE,
@@ -115,29 +119,10 @@ def transform_symbology_silver(df):
         FROM _symbology_bronze
     """)
 
-    # Estagio 1: conversao de chave pra colchete em COD_SIMBOLO (ver
-    # docstring do modulo - regra sem excecao, NUNCA normalizar_valor()
-    # aqui), limpeza de array serializado em COD_CORES/DESC_GRAFIAS_GATHERER
-    # (mesma regra de TB_FATO_CARTAS) e Title_Case/NA para texto livre curto
-    # via normalizar_valor().
-    df_final = spark.sql(r"""
-        SELECT
-            -- so as colunas com transformacao real ficam explicitas (mesmo
-            -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (flags/quantidades booleanas, linhagem etc.) ja saiu do
-            -- Estagio 0 com nome PT-BR final e so passa direto.
-            * EXCEPT (COD_SIMBOLO, DESC_VARIANTE_LIVRE, DESC_SIMBOLO,
-                      COD_CORES, DESC_GRAFIAS_GATHERER, DT_INGESTAO, NME_FONTE),
-
-            regexp_replace(regexp_replace(COD_SIMBOLO, '\\{', '['), '\\}', ']') AS COD_SIMBOLO,
-            CASE WHEN DESC_VARIANTE_LIVRE IS NULL OR DESC_VARIANTE_LIVRE = '' THEN 'NA' ELSE normalizar_valor(DESC_VARIANTE_LIVRE) END AS DESC_VARIANTE_LIVRE,
-            CASE WHEN DESC_SIMBOLO IS NULL OR DESC_SIMBOLO = '' THEN 'NA' ELSE normalizar_valor(DESC_SIMBOLO) END AS DESC_SIMBOLO,
-            regexp_replace(COD_CORES, '\\[|\\]|"', '') AS COD_CORES,
-            normalizar_valor(regexp_replace(DESC_GRAFIAS_GATHERER, '\\[|\\]|"', '')) AS DESC_GRAFIAS_GATHERER,
-            to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
-            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE
-        FROM _symbology_stage0
-    """)
+    # COD_SIMBOLO fica de fora: regra sem excecao (ver docstring do modulo).
+    df_final = normalizar_valores(df_final, [
+        "DESC_VARIANTE_LIVRE", "DESC_SIMBOLO", "DESC_GRAFIAS_GATHERER", "NME_FONTE",
+    ])
 
     logger.info(f"Transformacao Simbolos de Mana concluida: {df_final.count()} registros")
     return df_final

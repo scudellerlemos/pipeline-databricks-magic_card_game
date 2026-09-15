@@ -96,10 +96,14 @@ def transform_sets_silver(df):
     # sem mudar o formato.
     booster_cols_select = ", ".join(f"booster_{i} AS DESC_BOOSTER_SLOT_{i}" for i in range(20))
 
-    # Estágio 0: SELECT explícito Bronze crua -> nome PT-BR final (ver
-    # docstring do módulo) - nenhuma coluna sobra sem tradução.
-    spark.sql(f"""
-        CREATE OR REPLACE TEMP VIEW _sets_stage0 AS
+    # Uma única query: renomeia Bronze -> PT-BR, converte DT_LANCAMENTO e já
+    # deriva ANO_LANCAMENTO/MES_LANCAMENTO na mesma passada (#115:
+    # RELEASE_YEAR/RELEASE_MONTH -> PT-BR). NME_FONTE cai pra 'NA' se
+    # nulo/vazio - sem CASE por coluna, normalizar_valores() abaixo cuida do
+    # sentinela 'NA' junto com o Title_Case/sem-acento de todas as colunas de
+    # nome/categoria de uma vez (pedido do usuário: menos query, sem
+    # complexidade de acento dentro do SQL).
+    df_final = spark.sql(f"""
         SELECT
             upper(code) AS COD_COLECAO,  -- normaliza case: TB_FATO_CARTAS tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
             name AS NME_COLECAO,
@@ -107,7 +111,7 @@ def transform_sets_silver(df):
             border AS NME_COR_BORDA,
             mkm_id AS ID_CARDMARKET,
             mkm_name AS NME_CARDMARKET,
-            releaseDate AS DT_LANCAMENTO,
+            to_date(releaseDate) AS DT_LANCAMENTO,
             gathererCode AS COD_GATHERER,
             magicCardsInfoCode AS COD_MAGICCARDSINFO,
             oldCode AS COD_ANTIGO,
@@ -118,39 +122,23 @@ def transform_sets_silver(df):
             icon_svg_uri AS URL_ICONE,
             {booster_cols_select},
             ingestion_timestamp AS DT_INGESTAO,
-            source AS NME_FONTE,
+            coalesce(nullif(trim(source), ''), 'NA') AS NME_FONTE,
             endpoint AS DESC_URL_ORIGEM,
             source_file AS DESC_ARQUIVO_ORIGEM,
             bronze_run_id AS ID_EXECUCAO_BRONZE,
-            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE,
+            year(to_date(releaseDate)) AS ANO_LANCAMENTO,
+            month(to_date(releaseDate)) AS MES_LANCAMENTO
         FROM _sets_bronze
     """)
 
-    # Estágio 1: padronização de valor (Title_Case/"_"/sem acento - ver
-    # normalizar_valor() em silver_utils.py), NME_FONTE como 'NA' se
-    # nulo/vazio, conversão de data, e derivação de ANO_LANCAMENTO/
-    # MES_LANCAMENTO (#115: RELEASE_YEAR/RELEASE_MONTH -> PT-BR) a partir de
-    # DT_LANCAMENTO já convertida - antes essas duas colunas nunca existiram
-    # de fato nesta tabela (vinham direto, sem existir na Bronze).
-    df_final = spark.sql("""
-        SELECT
-            -- so as colunas com transformacao real ficam explicitas (mesmo
-            -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (booster_0..19, ids externos, linhagem etc.) ja saiu do
-            -- Estagio 0 com nome PT-BR final e so passa direto.
-            * EXCEPT (NME_COLECAO, NME_TIPO_COLECAO, NME_CARDMARKET, NME_COR_BORDA, NME_BLOCO, DT_LANCAMENTO, NME_FONTE),
-
-            normalizar_valor(NME_COLECAO) AS NME_COLECAO,
-            normalizar_valor(NME_TIPO_COLECAO) AS NME_TIPO_COLECAO,
-            normalizar_valor(NME_CARDMARKET) AS NME_CARDMARKET,
-            normalizar_valor(NME_COR_BORDA) AS NME_COR_BORDA,
-            normalizar_valor(NME_BLOCO) AS NME_BLOCO,
-            to_date(DT_LANCAMENTO) AS DT_LANCAMENTO,
-            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
-            year(to_date(DT_LANCAMENTO)) AS ANO_LANCAMENTO,
-            month(to_date(DT_LANCAMENTO)) AS MES_LANCAMENTO
-        FROM _sets_stage0
-    """)
+    # Title_Case/"_"/sem-acento (ver normalizar_valor() em silver_utils.py)
+    # nas colunas de nome/categoria, de uma vez só, depois que o SQL acima já
+    # resolveu rename + tipos + derivação.
+    df_final = normalizar_valores(df_final, [
+        "NME_COLECAO", "NME_TIPO_COLECAO", "NME_CARDMARKET",
+        "NME_COR_BORDA", "NME_BLOCO", "NME_FONTE",
+    ])
 
     logger.info(f"Transformação Coleções concluída: {df_final.count()} registros")
     return df_final
