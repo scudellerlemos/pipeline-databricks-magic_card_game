@@ -23,24 +23,33 @@ Unity Catalog (`{catalog}.bronze.cards`, etc.), o prefixo seria redundante.
 | `cards` | `cards` | [`cards.ipynb`](../Dev/cards.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) | [`cards/README.md`](./cards/README.md) |
 | `sets` | `sets` | [`sets.ipynb`](../Dev/sets.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) | [`sets/README.md`](./sets/README.md) |
 | `card_prices` | `card_prices` | [`card_prices.ipynb`](../Dev/card_prices.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) | [`card_prices/README.md`](./card_prices/README.md) |
-| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) | - |
-| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) | - |
-| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) | - |
+| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) | [`symbology/README.md`](./symbology/README.md) |
+| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) | [`rulings/README.md`](./rulings/README.md) |
+| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) | [`migrations/README.md`](./migrations/README.md) |
 
-`cards`/`sets`/`card_prices` têm um `README.md` próprio porque carregam uma
-nota específica (ex.: relação com preço/set) além do genérico já coberto
-acima; `symbology`/`rulings`/`migrations` não têm nada além do que já está
-documentado aqui, por isso não há página dedicada para elas.
+Todas as 6 tabelas têm um `README.md` próprio com a descrição de negócio da
+tabela (o que é, pra que serve) e a lista completa de colunas específicas
+dela. Os mesmos textos são a fonte usada para comentar a tabela/coluna no
+Unity Catalog (`DESCRIBE TABLE EXTENDED {tabela}` mostra o mesmo conteúdo) -
+ver [`../Dev/bronze_column_docs.py`](../Dev/bronze_column_docs.py), fonte
+única compartilhada entre este README e o comentário aplicado no catálogo.
 
-Não há doc de schema por coluna aqui de propósito: a Bronze não altera o
-schema que a Stage produz (ver notebook de origem na tabela acima para a
-lista de campos), só adiciona 3 colunas técnicas por cima:
+## Colunas técnicas comuns
 
-| Coluna adicionada | Descrição |
-|---|---|
-| `source_file` | Caminho completo do arquivo Parquet de origem na Stage (`_metadata.file_path`) - é a chave de idempotência: um arquivo só é lido de novo se seu `source_file` ainda não existir na tabela Bronze. |
-| `bronze_run_id` | Id da execução da Bronze que gravou a linha (controle de execução). |
-| `bronze_ingestion_timestamp` | Timestamp em que a Bronze processou o registro (distinto do `ingestion_timestamp` que já vem da Stage no dado de origem). |
+Além das colunas próprias de cada fonte, toda tabela Bronze carrega estas
+colunas técnicas (não repetidas nos READMEs por tabela). `source_file`,
+`bronze_run_id` e `bronze_ingestion_timestamp` são adicionadas por esta
+camada; `ingestion_timestamp`, `source` e `endpoint` já vêm gravadas pela
+Stage (comuns a toda fonte, preservadas 1:1 como o resto do dado):
+
+| Coluna | Adicionada por | Descrição |
+|---|---|---|
+| `ingestion_timestamp` | Stage | Timestamp em que a Stage coletou o registro da fonte - distinto do `bronze_ingestion_timestamp`. |
+| `source` | Stage | Nome da fonte de dados de origem (ex.: `scryfall`). Em `rulings`, esta chave é sobrescrita com um significado de negócio diferente - ver [`rulings/README.md`](./rulings/README.md). |
+| `endpoint` | Stage | Endpoint/URL da API de origem que devolveu este registro. |
+| `source_file` | Bronze | Caminho completo do arquivo Parquet de origem na Stage (`_metadata.file_path`) - é a chave de idempotência: um arquivo só é lido de novo se seu `source_file` ainda não existir na tabela Bronze. |
+| `bronze_run_id` | Bronze | Id da execução da Bronze que gravou a linha (controle de execução). |
+| `bronze_ingestion_timestamp` | Bronze | Timestamp em que a Bronze processou o registro. |
 
 ## Carga inicial vs. incremental
 

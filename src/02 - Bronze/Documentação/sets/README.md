@@ -1,11 +1,38 @@
 # sets (Bronze)
 
 > Ver [`../README.md`](../README.md) para a arquitetura completa da camada
-> Bronze (idempotência, controle de execução, schema, particionamento). Este
-> arquivo cobre só o que é específico desta tabela.
+> Bronze (idempotência, controle de execução, colunas técnicas comuns,
+> particionamento). Este arquivo cobre só o que é específico desta tabela.
+
+Catálogo dos sets/edições de Magic: The Gathering já lançados (incluindo
+edições só digitais). Responde "quando saiu, quantas cartas tem, a que
+bloco pertence e o que vem num pacote de booster" - útil pra organizar
+coleção por edição ou situar uma carta na linha do tempo do jogo.
 
 - **Tabela Unity Catalog:** `{catalog}.bronze.sets`.
 - **Origem (Stage):** tabela `sets`, gravada por [`src/01 - Ingestion/sets.ipynb`](<../../../01 - Ingestion/sets.ipynb>) a partir da API Scryfall (`/sets`).
 - **Notebook Bronze:** [`../../Dev/sets.ipynb`](../../Dev/sets.ipynb).
-- **Schema:** preservado 1:1 da Stage (não documentado aqui para não divergir - ver o notebook de origem acima para os campos atuais). A Bronze só adiciona `source_file`, `bronze_run_id`, `bronze_ingestion_timestamp`.
 - **Histórico:** um mesmo set pode aparecer em runs diferentes com dados diferentes; cada run é preservada, sem deduplicação.
+
+## Colunas
+
+Além das [colunas técnicas comuns](../README.md#colunas-técnicas-comuns):
+
+| Coluna | Descrição |
+|---|---|
+| `code` | Código curto do set/edição (ex.: `M19`). |
+| `name` | Nome completo do set/edição. |
+| `type` | Tipo de set (core, expansion, masters, promo, etc.). |
+| `border` | Cor de borda padrão das cartas do set (black/white/silver). |
+| `mkm_id` | Id do set na Cardmarket (MKM) - usado pra cruzar com dado de preço/mercado da Cardmarket. |
+| `mkm_name` | Nome do set na Cardmarket (MKM) - pode diferir do nome oficial usado na Scryfall. |
+| `releaseDate` | Data de lançamento do set. |
+| `gathererCode` | Código do set usado no Gatherer (Wizards). |
+| `magicCardsInfoCode` | Código do set usado no site magiccards.info. |
+| `oldCode` | Código antigo do set, se já foi renomeado. |
+| `onlineOnly` | `true` se o set só existe em ambiente digital (Arena/MTGO). |
+| `card_count` | Quantidade de cartas no set. |
+| `parent_set_code` | Código do set "pai", quando este é um sub-set (ex.: promos de um set principal). |
+| `block` | Bloco de expansão ao qual o set pertence. |
+| `icon_svg_uri` | URL do ícone SVG do set. |
+| `booster_0` … `booster_19` | Slot N do pacote de booster deste set (tipo de carta possível nessa posição) - a fonte devolve `booster` como lista e a Stage explode cada posição em uma coluna. |

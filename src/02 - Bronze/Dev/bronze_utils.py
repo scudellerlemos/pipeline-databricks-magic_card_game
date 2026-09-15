@@ -139,30 +139,57 @@ def log_schema_diff(spark, delta_path, incoming_df):
 # LOAD - APPEND PURO (SEM MERGE/UPSERT) + REGISTRO NO UNITY CATALOG
 # ============================================================================
 
-def ensure_unity_catalog_table(spark, full_table_name, delta_path):
+def ensure_unity_catalog_table(spark, full_table_name, delta_path, table_comment=None):
     """Registra a tabela externa Delta no Unity Catalog se ainda não existir.
 
     Só cria - nunca ALTER/DROP automático aqui. Se a tabela já existe, deixa
     como está (preserva qualquer modificação manual feita fora do pipe).
     """
     if not spark.catalog.tableExists(full_table_name):
+        comment = table_comment or "Camada Bronze - dado bruto da Stage, 1:1, sem regra de negócio"
         spark.sql(f"""
             CREATE TABLE {full_table_name}
             USING DELTA
             LOCATION '{delta_path}'
-            COMMENT 'Camada Bronze - dado bruto da Stage, 1:1, sem regra de negócio'
+            COMMENT '{_escape_sql_string(comment)}'
         """)
         print(f"Tabela Unity Catalog criada: {full_table_name}")
 
 
-def append_to_bronze(df, delta_path, full_table_name):
+def _escape_sql_string(value):
+    return value.replace("'", "''")
+
+
+def apply_table_documentation(spark, full_table_name, table_comment=None, column_comments=None):
+    """Aplica COMMENT ON TABLE / ALTER COLUMN...COMMENT no Unity Catalog.
+
+    Metadados apenas (não reescreve dado) - seguro rodar em toda execução,
+    inclusive numa tabela já existente e comentada, pra manter em sincronia
+    com bronze_column_docs.py sem precisar de uma migração separada. Colunas
+    em column_comments que ainda não existem na tabela (schema evolution
+    futura) são silenciosamente ignoradas.
+    """
+    if table_comment:
+        spark.sql(f"COMMENT ON TABLE {full_table_name} IS '{_escape_sql_string(table_comment)}'")
+
+    if column_comments:
+        existing_columns = {f.name for f in spark.table(full_table_name).schema.fields}
+        for column_name, comment in column_comments.items():
+            if column_name in existing_columns:
+                spark.sql(
+                    f"ALTER TABLE {full_table_name} "
+                    f"ALTER COLUMN `{column_name}` COMMENT '{_escape_sql_string(comment)}'"
+                )
+
+
+def append_to_bronze(df, delta_path, full_table_name, table_comment=None):
     """Escreve por APPEND (cria a tabela Delta automaticamente na 1a carga)."""
     (df.write
        .format("delta")
        .mode("append")
        .option("mergeSchema", "true")
        .save(delta_path))
-    ensure_unity_catalog_table(df.sparkSession, full_table_name, delta_path)
+    ensure_unity_catalog_table(df.sparkSession, full_table_name, delta_path, table_comment)
 
 
 # ============================================================================
@@ -220,19 +247,28 @@ def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
 
 def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
                           bronze_table_name, stage_table_name,
-                          s3_stage_path, s3_bronze_path):
+                          s3_stage_path, s3_bronze_path,
+                          table_comment=None, column_comments=None):
     """EL completo: identifica arquivos novos da Stage -> lê -> adiciona
     metadados técnicos -> append na Bronze (schema evolution aditiva) ->
     garante a tabela no Unity Catalog -> grava o controle de execução.
 
     Idempotente: se não há arquivo novo da Stage desde a última execução,
     não escreve nada e a run fecha como SUCCESS com 0 registros.
+
+    table_comment/column_comments (ver bronze_column_docs.py) documentam a
+    tabela no Unity Catalog. Aplicados também no caminho "nada a fazer" pra
+    tabela já existente pegar comentário novo/alterado sem depender de
+    escrever dado novo.
     """
     run = start_bronze_run(bronze_table_name)
     delta_path = f"{s3_bronze_path}/{bronze_table_name}"
     full_table_name = f"{catalog_name}.{schema_name}.{bronze_table_name}"
 
     try:
+        if spark.catalog.tableExists(full_table_name):
+            apply_table_documentation(spark, full_table_name, table_comment, column_comments)
+
         all_files = list_stage_files(dbutils, s3_stage_path, stage_table_name)
         already_loaded = get_already_loaded_files(spark, delta_path)
         new_files = [f for f in all_files if normalize_path(f) not in already_loaded]
@@ -256,7 +292,8 @@ def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
         run["records_read"] = df.count()
 
         log_schema_diff(spark, delta_path, df)
-        append_to_bronze(df, delta_path, full_table_name)
+        append_to_bronze(df, delta_path, full_table_name, table_comment)
+        apply_table_documentation(spark, full_table_name, table_comment, column_comments)
 
         run["records_written"] = run["records_read"]
         finish_bronze_run(dbutils, run, s3_bronze_path, "SUCCESS")
