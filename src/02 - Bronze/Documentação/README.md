@@ -1,180 +1,77 @@
-# 📚 Documentação da Camada Bronze
-<br>
-<br>
-<div align="center">
-<!-- Imagem ilustrativa da tabela (adicione o link abaixo) -->
-<img src="https://i.postimg.cc/1t61LYFb/doc.png" alt="Imagem de documentação" width="400"/>
-</div>
-<br>
+# Documentação da Camada Bronze
 
+## Visão geral
 
-## 📋 Visão Geral
+A Bronze faz **EL puro** (Extract & Load): lê os arquivos Parquet gravados
+pela Stage em S3 e grava um Delta append-only por tabela no Unity Catalog,
+preservando o schema de origem 1:1. Nenhuma regra de negócio, renomeação de
+coluna, deduplicação por chave de negócio ou MERGE/upsert acontece aqui -
+isso é responsabilidade da Silver.
 
-Esta pasta contém a **documentação completa** de todas as tabelas da camada Bronze do pipeline de dados do Magic: The Gathering. Cada tabela possui sua documentação detalhada com schema, regras de implementação, particionamento e linhagem de dados.
+Toda a lógica compartilhada vive em
+[`../Dev/bronze_utils.py`](../Dev/bronze_utils.py). Cada notebook por tabela
+só declara a configuração (nome da tabela, nome da tabela de origem na
+Stage) e chama `run_bronze_ingestion(...)`.
 
-## 🎯 Objetivo
+## Tabelas
 
-Fornecer documentação executiva e técnica de todas as tabelas Bronze, permitindo:
-- **Visão geral rápida** das tabelas disponíveis
-- **Acesso direto** à documentação detalhada de cada tabela
-- **Entendimento da arquitetura** de dados da camada Bronze
-- **Referência técnica** para desenvolvimento e manutenção
+Nomeadas sem prefixo `TB_BRONZE_` - já estão dentro do schema `bronze` no
+Unity Catalog (`{catalog}.bronze.cards`, etc.), o prefixo seria redundante.
 
-## 🃏 Tabelas Documentadas
+| Tabela Bronze | Tabela de origem (Stage) | Notebook | Schema (fonte) | Detalhes |
+|---|---|---|---|---|
+| `cards` | `cards` | [`cards.ipynb`](../Dev/cards.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) | [`cards/README.md`](./cards/README.md) |
+| `sets` | `sets` | [`sets.ipynb`](../Dev/sets.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) | [`sets/README.md`](./sets/README.md) |
+| `card_prices` | `card_prices` | [`card_prices.ipynb`](../Dev/card_prices.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) | [`card_prices/README.md`](./card_prices/README.md) |
+| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) | - |
+| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) | - |
+| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) | - |
 
-### 🎴 **TB_BRONZE_CARDS** - Cartas do Magic
-- **Descrição**: Dados brutos de cartas do Magic: The Gathering
-- **Chave Primária**: `ID_CARD`
-- **Particionamento**: `RELEASE_YEAR`, `RELEASE_MONTH`
-- **Filtro Temporal**: Últimos 5 anos
-- **Schema**: 28 colunas (dados complexos)
-- **Características**: 
-  - Dados de criaturas, magias, artefatos
-  - Informações de mana, tipos, raridade
-  - URLs de imagens e metadados
-- **[📖 Ver Documentação Completa](./TB_BRONZE_CARDS/README.md)**
+`cards`/`sets`/`card_prices` têm um `README.md` próprio porque carregam uma
+nota específica (ex.: relação com preço/set) além do genérico já coberto
+acima; `symbology`/`rulings`/`migrations` não têm nada além do que já está
+documentado aqui, por isso não há página dedicada para elas.
 
-### 📦 **TB_BRONZE_SETS** - Coleções
-- **Descrição**: Dados brutos de sets (coleções) do Magic
-- **Chave Primária**: `COD_SET`
-- **Particionamento**: `RELEASE_YEAR`, `RELEASE_MONTH`
-- **Filtro Temporal**: Últimos 5 anos
-- **Schema**: 45 colunas (dados expandidos)
-- **Características**:
-  - Informações de lançamento e tipo
-  - Configuração de boosters (20 slots)
-  - URLs de mercado e APIs externas
-- **[📖 Ver Documentação Completa](./TB_BRONZE_SETS/README.md)**
+Não há doc de schema por coluna aqui de propósito: a Bronze não altera o
+schema que a Stage produz (ver notebook de origem na tabela acima para a
+lista de campos), só adiciona 3 colunas técnicas por cima:
 
-### 🏷️ **TB_BRONZE_TYPES** - Tipos de Cartas
-- **Descrição**: Dados de referência de tipos de cartas
-- **Chave Primária**: `NME_TYPE`
-- **Particionamento**: `INGESTION_YEAR`, `INGESTION_MONTH`
-- **Filtro Temporal**: Não aplicado (dados de referência)
-- **Schema**: 8 colunas (dados simples)
-- **Características**:
-  - Dados estáticos de referência
-  - Tipos como "Criatura", "Mágica Instantanea", "Feitiço"
-- **[📖 Ver Documentação Completa](./TB_BRONZE_TYPES/README.md)**
+| Coluna adicionada | Descrição |
+|---|---|
+| `source_file` | Caminho completo do arquivo Parquet de origem na Stage (`input_file_name()`) - é a chave de idempotência: um arquivo só é lido de novo se seu `source_file` ainda não existir na tabela Bronze. |
+| `bronze_run_id` | Id da execução da Bronze que gravou a linha (controle de execução). |
+| `bronze_ingestion_timestamp` | Timestamp em que a Bronze processou o registro (distinto do `ingestion_timestamp` que já vem da Stage no dado de origem). |
 
-### ⭐ **TB_BRONZE_SUPERTYPES** - Supertipos de Cartas
-- **Descrição**: Dados de referência de supertipos de cartas
-- **Chave Primária**: `NME_SUPERTYPE`
-- **Particionamento**: `INGESTION_YEAR`, `INGESTION_MONTH`
-- **Filtro Temporal**: Não aplicado (dados de referência)
-- **Schema**: 8 colunas (dados simples)
-- **Características**:
-  - Dados estáticos de referência
-  - Supertipos como "Basico", "Lendária"
-- **[📖 Ver Documentação Completa](./TB_BRONZE_SUPERTYPES/README.md)**
+## Carga inicial vs. incremental
 
-### 🔖 **TB_BRONZE_SUBTYPES** - Subtipos de Cartas
-- **Descrição**: Dados de referência de subtipos de cartas
-- **Chave Primária**: `NME_SUBTYPE`
-- **Particionamento**: `INGESTION_YEAR`, `INGESTION_MONTH`
-- **Filtro Temporal**: Não aplicado (dados de referência)
-- **Schema**: 8 colunas (dados simples)
-- **Características**:
-  - Dados estáticos de referência
-  - Subtipos como "Humano", "Dragão", "Equipamento"
-- **[📖 Ver Documentação Completa](./TB_BRONZE_SUBTYPES/README.md)**
+Não há distinção de código entre a 1ª carga e as execuções seguintes: o
+`write.format("delta").mode("append")` cria a tabela Delta automaticamente
+se ela não existir. Toda execução segue o mesmo fluxo:
 
-### 🎮 **TB_BRONZE_FORMATS** - Formatos de Jogo
-- **Descrição**: Dados de referência de formatos de jogo
-- **Chave Primária**: `NME_FORMAT`
-- **Particionamento**: `INGESTION_YEAR`, `INGESTION_MONTH`
-- **Filtro Temporal**: Não aplicado (dados de referência)
-- **Schema**: 8 colunas (dados simples)
-- **Características**:
-  - Dados estáticos de referência
-  - Formatos como "Standard", "Modern", "Commander"
-- **[📖 Ver Documentação Completa](./TB_BRONZE_FORMATS/README.md)**
+1. Lista os arquivos Parquet da Stage para a tabela (`*_{stage_table_name}.parquet`).
+2. Descobre quais já foram carregados (via `source_file` distinto já presente na Bronze).
+3. Lê só os arquivos novos, adiciona as 3 colunas técnicas.
+4. Append no Delta com `mergeSchema=true` (evolução aditiva de schema).
+5. Garante a tabela no Unity Catalog (`CREATE TABLE IF NOT EXISTS ... LOCATION`, nunca `DROP`/`ALTER` automático).
+6. Grava o controle de execução em `{s3_bronze_path}/_control/{tabela}/{run_id}.json`.
 
-### 💰 **TB_BRONZE_CARDPRICES** - Preços de Cartas
-- **Descrição**: Dados brutos de preços de cartas
-- **Chave Primária**: `NME_CARD`
-- **Particionamento**: `RELEASE_YEAR`, `RELEASE_MONTH`
-- **Filtro Temporal**: Últimos 5 anos
-- **Schema**: 28 colunas (dados de mercado)
-- **Características**:
-  - Preços em USD, EUR, TIX (normal e foil)
-  - Dados de mercado (high, low, market)
-  - Atualização incremental de preços
-- **[📖 Ver Documentação Completa](./TB_BRONZE_CARD_PRICES/README.md)**
+Se não há arquivo novo (ex.: 2ª execução no mesmo dia, já que a Stage não
+gera arquivo novo nesse caso), a run fecha como `SUCCESS` sem escrever nada -
+idempotência por identidade de arquivo, não por `SELECT DISTINCT` em dado de
+negócio.
 
-## 🔄 Categorização das Tabelas
+## Histórico preservado (sem deduplicação)
 
-### 📊 **Tabelas de Dados Principais** (Com Filtro Temporal)
-| Tabela | Tipo de Dado | Particionamento | Filtro |
-|--------|-------------|-----------------|---------|
-| TB_BRONZE_CARDS | Cartas | RELEASE_YEAR/MONTH | 5 anos |
-| TB_BRONZE_SETS | Coleções | RELEASE_YEAR/MONTH | 5 anos |
-| TB_BRONZE_CARDPRICES | Preços | RELEASE_YEAR/MONTH | 5 anos |
+A mesma carta/preço/regra pode aparecer em mais de um arquivo/execução da
+Stage ao longo do tempo (ex.: preço de uma carta em dois dias diferentes).
+A Bronze preserva as duas linhas - não há `dropDuplicates` nem `MERGE` por
+chave de negócio. Decidir o que é "estado atual" vs. "histórico" é трabalho
+da Silver.
 
-### 🏷️ **Tabelas de Referência** (Sem Filtro Temporal)
-| Tabela | Tipo de Dado | Particionamento | Característica |
-|--------|-------------|-----------------|----------------|
-| TB_BRONZE_TYPES | Tipos | INGESTION_YEAR/MONTH | Estático |
-| TB_BRONZE_SUPERTYPES | Supertipos | INGESTION_YEAR/MONTH | Estático |
-| TB_BRONZE_SUBTYPES | Subtipos | INGESTION_YEAR/MONTH | Estático |
-| TB_BRONZE_FORMATS | Formatos | INGESTION_YEAR/MONTH | Estático |
+## Particionamento
 
-## 🎴 **Flavor Text da Documentação**
-*"Como um bibliotecário sábio organizando grimórios antigos, a documentação da camada Bronze preserva o conhecimento de cada tabela, permitindo que futuros magos da engenharia de dados encontrem rapidamente os segredos que buscam."*
-
-## 📈 Estatísticas da Camada Bronze
-
-### **Volume de Dados**
-- **7 tabelas** documentadas
-- **3 tabelas principais** com dados temporais
-- **4 tabelas de referência** com dados estáticos
-- **Total estimado**: ~150+ colunas padronizadas
-
-### **Padrões de Nomenclatura**
-- **NME_**: Nomes e identificadores
-- **COD_**: Códigos e chaves
-- **VLR_**: Valores monetários
-- **DT_**: Datas e timestamps
-- **FLG_**: Flags booleanos
-- **URL_**: URLs e links
-- **DESC_**: Descrições e textos
-
-### **Estratégias de Particionamento**
-- **Dados Temporais**: Particionamento por ano/mês de lançamento
-- **Dados de Referência**: Particionamento por ano/mês de ingestão
-- **Otimização**: Distribuição equilibrada de dados
-
-## 🔍 Como Usar Esta Documentação
-
-### **Para Desenvolvedores**
-1. **Visão Geral**: Comece por este README para entender a arquitetura
-2. **Documentação Específica**: Acesse a documentação da tabela desejada
-3. **Schema Detalhado**: Consulte as colunas e tipos de dados
-4. **Regras de Implementação**: Entenda filtros e deduplicação
-
-### **Para Analistas de Dados**
-1. **Linhagem de Dados**: Entenda a origem e transformações
-2. **Particionamento**: Otimize consultas usando partições
-3. **Regras de Negócio**: Compreenda filtros temporais aplicados
-4. **Relacionamentos**: Identifique chaves para joins
-
-### **Para Administradores**
-1. **Configuração**: Verifique segredos e configurações necessárias
-2. **Monitoramento**: Acompanhe logs e métricas de processamento
-3. **Manutenção**: Entenda estratégias de merge e atualização
-4. **Recuperação**: Conheça procedimentos de backup e restore
-
-## 🛡️ Controle de Qualidade
-
-### **Validações Implementadas**
-- ✅ **Schema Padronizado**: Nomenclatura consistente
-- ✅ **Particionamento Adequado**: Otimização de performance
-- ✅ **Filtros Temporais**: Controle de volume de dados
-- ✅ **Deduplicação**: Remoção de registros duplicados
-- ✅ **Merge Incremental**: Atualização inteligente
-
-### **Monitoramento**
-- 📊 **Contagem de Registros**: Antes e depois do processamento
-- 🔄 **Taxa de Atualização**: Frequência de mudanças
-- ⚡ **Performance**: Tempo de processamento por tabela
-- 🎯 **Qualidade**: Validação de integridade dos dados
+Nenhuma tabela Bronze é particionada. O volume atual não justifica, e
+particionar preventivamente sem necessidade real é a complexidade que este
+redesenho removeu (as tabelas antigas particionavam por `RELEASE_YEAR`/
+`RELEASE_MONTH` derivados de um JOIN com `sets` dentro da Bronze - regra de
+negócio que não deveria estar aqui).

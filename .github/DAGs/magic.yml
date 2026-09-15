@@ -55,7 +55,7 @@ resources:
           depends_on:
             - task_key: stage_cartas
           notebook_task:
-            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDS
+            notebook_path: src/02 - Bronze/Dev/cards
             source: GIT
           job_cluster_key: Job_cluster
 
@@ -63,7 +63,7 @@ resources:
           depends_on:
             - task_key: stage_colecao
           notebook_task:
-            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SETS
+            notebook_path: src/02 - Bronze/Dev/sets
             source: GIT
           job_cluster_key: Job_cluster
 
@@ -71,7 +71,31 @@ resources:
           depends_on:
             - task_key: stage_precos
           notebook_task:
-            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_CARDPRICES
+            notebook_path: src/02 - Bronze/Dev/card_prices
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: bronze_simbologia
+          depends_on:
+            - task_key: stage_simbologia
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/symbology
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: bronze_regras
+          depends_on:
+            - task_key: stage_regras
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/rulings
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: bronze_migracoes
+          depends_on:
+            - task_key: stage_migracoes
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/migrations
             source: GIT
           job_cluster_key: Job_cluster
 
