@@ -22,8 +22,8 @@ só o que a Stage gravou de novo desde a última execução da Bronze.
 import uuid
 from datetime import datetime, timezone
 
+from pyspark.errors import AnalysisException
 from pyspark.sql.functions import current_timestamp, input_file_name, lit
-from pyspark.sql.utils import AnalysisException
 
 # get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
 # chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
@@ -73,12 +73,17 @@ def get_already_loaded_files(spark, delta_path):
     Qualquer outro erro (permissão, S3 transiente, log de transação
     corrompido) sobe: tratá-lo como "tabela vazia" faria a run reingerir e
     duplicar todo o histórico em vez de falhar alto.
+
+    O collect() precisa ficar dentro do try: em Spark Connect, .load() é
+    lazy e não valida o path na hora - o PATH_NOT_FOUND só estoura quando
+    uma action roda (aqui, o collect), então deixar o collect fora do try
+    deixava a exceção escapar sem ser pega mesmo já importando do módulo certo.
     """
     try:
         df = spark.read.format("delta").load(delta_path)
+        return {normalize_path(row.source_file) for row in df.select("source_file").distinct().collect()}
     except AnalysisException:
         return set()
-    return {normalize_path(row.source_file) for row in df.select("source_file").distinct().collect()}
 
 
 # ============================================================================

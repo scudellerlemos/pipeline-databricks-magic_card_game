@@ -1,0 +1,41 @@
+resources:
+  jobs:
+    # Orquestrador: nao roda notebook nenhum, so encadeia os jobs de camada via
+    # run_job_task. Cada camada (MTG_STAGE, MTG_BRONZE, MTG_SILVER_GOLD) so
+    # comeca quando a camada anterior termina POR INTEIRO - e a barreira de
+    # camada que a gente queria, sem repetir depends_on em cada task.
+    #
+    # job_id de cada run_job_task e um placeholder (ver deploy.py), substituido
+    # pelo ID real do job na hora do deploy, porque este repo nao usa Databricks
+    # Asset Bundles (sem interpolacao ${resources.jobs.X.id} nativa).
+    MTG_PIPELINE:
+      name: MTG_PIPELINE
+      description: "Orquestrador: Stage -> Bronze -> Silver/Gold"
+      schedule:
+        # Executa diariamente as 6h
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/Sao_Paulo
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: rodar_stage
+          run_job_task:
+            job_id: "{{MTG_STAGE_JOB_ID}}"
+
+        - task_key: rodar_bronze
+          depends_on:
+            - task_key: rodar_stage
+          run_job_task:
+            job_id: "{{MTG_BRONZE_JOB_ID}}"
+
+        - task_key: rodar_silver_gold
+          depends_on:
+            - task_key: rodar_bronze
+          run_job_task:
+            job_id: "{{MTG_SILVER_GOLD_JOB_ID}}"
+
+      tags:
+        project: "MTG"
+        environment: "production"
+        team: "data-engineering"
+        api_source: "scryfall"
+        layer: "orquestrador"

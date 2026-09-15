@@ -35,8 +35,10 @@ migrations.ipynb
 ```
 
 Não há ordem de dependência entre eles (cada um lê só sua própria origem na
-Stage). No pipeline (`.github/DAGs/magic.yml`), cada `bronze_*` depende
-apenas do `stage_*` correspondente.
+Stage). Vivem no job `MTG_BRONZE` (`.github/DAGs/bronze.yml`), sem
+depends_on entre si nem com a Stage - o job `MTG_PIPELINE`
+(`.github/DAGs/pipeline.yml`) só aciona a Bronze inteira depois que a Stage
+inteira (`MTG_STAGE`) termina, via `run_job_task`.
 
 ## Segredos necessários (scope `mtg-pipeline`)
 

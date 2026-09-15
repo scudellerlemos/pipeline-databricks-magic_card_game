@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-Script para deploy do pipeline no Databricks
+Script para deploy dos jobs do pipeline no Databricks.
+
+Este repo nao usa Databricks Asset Bundles, entao nao ha interpolacao nativa
+de ${resources.jobs.X.id} entre jobs. MTG_PIPELINE (orquestrador) referencia
+MTG_STAGE/MTG_BRONZE/MTG_SILVER_GOLD via run_job_task.job_id - por isso esses
+3 tem que ser deployados ANTES, e seus job_ids substituidos nos placeholders
+"{{MTG_STAGE_JOB_ID}}" etc. do pipeline.yml antes dele ser deployado.
 """
 
 import yaml
@@ -10,90 +16,75 @@ import sys
 import os
 from datetime import datetime
 
+# (arquivo, job_key) - ordem importa: os 3 primeiros precisam existir antes
+# do orquestrador (ultimo) ser deployado, pra gente saber os job_ids deles.
+DEPLOY_ORDER = [
+    (".github/DAGs/stage.yml", "MTG_STAGE"),
+    (".github/DAGs/bronze.yml", "MTG_BRONZE"),
+    (".github/DAGs/magic.yml", "MTG_SILVER_GOLD"),
+    (".github/DAGs/pipeline.yml", "MTG_PIPELINE"),
+]
+
+JSON_TMP = "job_deploy.json"
+
+
 def log(message, level="INFO"):
     """Função para logging padronizado"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {message}")
 
-def convert_yaml_to_json():
-    """Converte YAML para JSON"""
-    try:
-        log("📖 Lendo arquivo YAML...")
-        with open('.github/DAGs/magic.yml', 'r', encoding='utf-8') as f:
-            yaml_data = yaml.safe_load(f)
-        
-        log(f"✅ YAML data loaded: {type(yaml_data)}")
-        
-        # Validate required structure
-        if 'resources' not in yaml_data or 'jobs' not in yaml_data['resources']:
-            log("❌ Estrutura YAML inválida: resources.jobs não encontrado", "ERROR")
-            return False
-            
-        if 'MTG_PIPELINE' not in yaml_data['resources']['jobs']:
-            log("❌ Job MTG_PIPELINE não encontrado na configuração", "ERROR")
-            return False
-        
-        # Extract only the job configuration (not the full resources structure)
-        job_config = yaml_data['resources']['jobs']['MTG_PIPELINE']
-        
-        # Convert to JSON
-        log("🔄 Convertendo para JSON...")
-        json_content = json.dumps(job_config, indent=2, ensure_ascii=False)
-        
-        # Write JSON file
-        with open('magic.json', 'w', encoding='utf-8') as f:
-            f.write(json_content)
-        
-        log(f"✅ JSON file written: {len(json_content)} characters")
-        log(f"📊 Job config keys: {list(job_config.keys())}")
-        
-        # Validate JSON file was created correctly
-        try:
-            with open('magic.json', 'r', encoding='utf-8') as f:
-                test_json = json.load(f)
-            log("✅ JSON file validation passed")
-        except Exception as e:
-            log(f"❌ JSON file validation failed: {e}", "ERROR")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        log(f"❌ Erro na conversão: {e}", "ERROR")
-        return False
 
-def get_existing_job_id(is_new_cli=False):
-    """Obtém o ID do job existente se houver"""
+def load_job_config(yaml_path, job_key, job_ids_by_key=None):
+    """Le o YAML, extrai o job e (se for o orquestrador) substitui os
+    placeholders de job_id pelos IDs reais ja deployados."""
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        yaml_data = yaml.safe_load(f)
+
+    if "resources" not in yaml_data or "jobs" not in yaml_data["resources"]:
+        raise ValueError(f"{yaml_path}: resources.jobs não encontrado")
+    if job_key not in yaml_data["resources"]["jobs"]:
+        raise ValueError(f"{yaml_path}: job {job_key} não encontrado")
+
+    job_config = yaml_data["resources"]["jobs"][job_key]
+
+    if job_ids_by_key:
+        for task in job_config.get("tasks", []):
+            if "run_job_task" not in task:
+                continue
+            placeholder = task["run_job_task"].get("job_id", "")
+            for referenced_key, referenced_id in job_ids_by_key.items():
+                token = "{{" + f"{referenced_key}_JOB_ID" + "}}"
+                if placeholder == token:
+                    task["run_job_task"]["job_id"] = referenced_id
+
+    return job_config
+
+
+def write_json(job_config):
+    json_content = json.dumps(job_config, indent=2, ensure_ascii=False)
+    with open(JSON_TMP, "w", encoding="utf-8") as f:
+        f.write(json_content)
+    return json_content
+
+
+def get_existing_job_id(job_name, is_new_cli=False):
+    """Obtém o ID do job existente pelo nome, se houver"""
     try:
-        log("🔍 Verificando jobs existentes...")
-        
-        if is_new_cli:
-            # CLI nova: usa --output json (lowercase)
-            result = subprocess.run(
-                ['databricks', 'jobs', 'list', '--output', 'json'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-        else:
-            # CLI antiga: usa --output JSON (uppercase)
-            result = subprocess.run(
-                ['databricks', 'jobs', 'list', '--output', 'JSON'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-        
+        output_flag = "json" if is_new_cli else "JSON"
+        result = subprocess.run(
+            ["databricks", "jobs", "list", "--output", output_flag],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         jobs_data = json.loads(result.stdout)
-        for job in jobs_data.get('jobs', []):
-            if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
-                job_id = job.get('job_id')
-                log(f"✅ Job existente encontrado: ID {job_id}")
+        for job in jobs_data.get("jobs", []):
+            if job.get("settings", {}).get("name") == job_name:
+                job_id = job.get("job_id")
+                log(f"✅ Job existente encontrado: {job_name} (ID {job_id})")
                 return job_id
-        
-        log("ℹ️ Nenhum job existente encontrado, será criado um novo")
+        log(f"ℹ️ Job {job_name} não existe ainda, será criado")
         return None
-        
     except subprocess.CalledProcessError as e:
         log(f"⚠️ Erro ao listar jobs: {e.stderr}", "WARN")
         return None
@@ -101,68 +92,38 @@ def get_existing_job_id(is_new_cli=False):
         log(f"⚠️ Erro inesperado ao listar jobs: {e}", "WARN")
         return None
 
+
 def validate_databricks_connection():
     """Valida a conexão com o Databricks"""
     try:
         log("🔗 Testando conexão com Databricks...")
-        result = subprocess.run(
-            ['databricks', '--version'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(["databricks", "--version"], capture_output=True, text=True, check=True)
         version_output = result.stdout.strip()
         log(f"✅ Databricks CLI version: {version_output}")
-        
-        # Detectar se é CLI nova (v0.x.x) ou antiga (Version x.x.x)
-        is_new_cli = version_output.startswith('Databricks CLI v')
-        is_old_cli = version_output.startswith('Version ')
-        
-        if is_new_cli:
-            log("🆕 CLI nova detectada")
-            # CLI nova não precisa de configuração específica para Jobs API
-            log("✅ CLI nova não requer configuração adicional")
-        elif is_old_cli:
-            log("📟 CLI antiga detectada")
-            # Configurar CLI antiga para usar Jobs API 2.1
+
+        is_new_cli = version_output.startswith("Databricks CLI v")
+        is_old_cli = version_output.startswith("Version ")
+
+        if is_old_cli:
             try:
-                log("🔄 Configurando CLI antiga para usar Jobs API 2.1...")
-                result = subprocess.run(
-                    ['databricks', 'jobs', 'configure', '--version', '2.1'],
+                subprocess.run(
+                    ["databricks", "jobs", "configure", "--version", "2.1"],
                     capture_output=True,
                     text=True,
-                    check=True
+                    check=True,
                 )
                 log("✅ CLI antiga configurada para Jobs API 2.1")
             except subprocess.CalledProcessError as e:
                 log(f"⚠️ Configuração falhou: {e.stderr}", "WARN")
-                log("🔄 Tentando configuração via variável de ambiente...")
-                os.environ['DATABRICKS_JOBS_API_VERSION'] = '2.1'
-                log("✅ Variável de ambiente configurada")
-        else:
-            log("⚠️ Versão da CLI não reconhecida", "WARN")
-        
-        # Test workspace access (adaptado para diferentes CLIs)
+                os.environ["DATABRICKS_JOBS_API_VERSION"] = "2.1"
+
         if is_new_cli:
-            # CLI nova requer um PATH
-            result = subprocess.run(
-                ['databricks', 'workspace', 'list', '/'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            subprocess.run(["databricks", "workspace", "list", "/"], capture_output=True, text=True, check=True)
         else:
-            # CLI antiga
-            result = subprocess.run(
-                ['databricks', 'workspace', 'list'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            subprocess.run(["databricks", "workspace", "list"], capture_output=True, text=True, check=True)
         log("✅ Conexão com workspace estabelecida")
-        
+
         return True, is_new_cli
-        
     except subprocess.CalledProcessError as e:
         log(f"❌ Erro na conexão com Databricks: {e.stderr}", "ERROR")
         return False, False
@@ -170,110 +131,71 @@ def validate_databricks_connection():
         log(f"❌ Erro inesperado na validação: {e}", "ERROR")
         return False, False
 
-def deploy_job():
-    """Faz o deploy do job"""
+
+def deploy_one_job(yaml_path, job_key, is_new_cli, job_ids_by_key):
+    """Deploya (cria ou atualiza) um job e retorna seu job_id."""
+    log(f"📖 Lendo {yaml_path} ({job_key})...")
+    job_config = load_job_config(yaml_path, job_key, job_ids_by_key)
+    write_json(job_config)
+
+    existing_id = get_existing_job_id(job_key, is_new_cli)
+
+    env = os.environ.copy()
+    if not is_new_cli:
+        env["DATABRICKS_JOBS_API_VERSION"] = "2.1"
+
+    with open(JSON_TMP, "r", encoding="utf-8") as f:
+        json_content = f.read()
+
+    if existing_id:
+        log(f"🔄 Atualizando job existente: {job_key} (ID {existing_id})")
+        if is_new_cli:
+            result = subprocess.run(
+                ["databricks", "jobs", "reset", str(existing_id)],
+                input=json_content, capture_output=True, text=True, check=True, env=env,
+            )
+        else:
+            result = subprocess.run(
+                ["databricks", "jobs", "reset", "--job-id", str(existing_id), "--json-file", JSON_TMP],
+                capture_output=True, text=True, check=True, env=env,
+            )
+        job_id = existing_id
+    else:
+        log(f"🆕 Criando novo job: {job_key}")
+        if is_new_cli:
+            result = subprocess.run(
+                ["databricks", "jobs", "create"],
+                input=json_content, capture_output=True, text=True, check=True, env=env,
+            )
+        else:
+            result = subprocess.run(
+                ["databricks", "jobs", "create", "--json-file", JSON_TMP],
+                capture_output=True, text=True, check=True, env=env,
+            )
+        try:
+            job_id = json.loads(result.stdout).get("job_id")
+        except Exception:
+            job_id = None
+
+    log(f"📄 Resposta do Databricks para {job_key}: {result.stdout.strip()[:300]}")
+    if job_id is None:
+        raise RuntimeError(f"Não foi possível determinar o job_id de {job_key} após o deploy")
+
+    log(f"🎯 {job_key} -> job_id {job_id}")
+    return job_id
+
+
+def deploy_all():
+    connection_success, is_new_cli = validate_databricks_connection()
+    if not connection_success:
+        return False
+
+    job_ids_by_key = {}
     try:
-        # Validate connection first
-        connection_result = validate_databricks_connection()
-        if isinstance(connection_result, tuple):
-            connection_success, is_new_cli = connection_result
-        else:
-            connection_success, is_new_cli = connection_result, False
-            
-        if not connection_success:
-            return False
-        
-        # Convert YAML to JSON
-        if not convert_yaml_to_json():
-            return False
-        
-        # Check if job exists
-        job_id = get_existing_job_id(is_new_cli)
-        
-        # Debug: Show JSON file content
-        try:
-            with open('magic.json', 'r', encoding='utf-8') as f:
-                json_content = f.read()
-            log(f"📄 JSON file preview (first 500 chars): {json_content[:500]}...")
-            
-            # Look for job_clusters specifically
-            import json
-            json_data = json.loads(json_content)
-            if 'job_clusters' in json_data:
-                job_cluster = json_data['job_clusters'][0]['new_cluster']
-                log(f"🔍 Job cluster config: kind={job_cluster.get('kind', 'NOT_FOUND')}, is_single_node={job_cluster.get('is_single_node', 'NOT_FOUND')}")
-            else:
-                log("❌ job_clusters não encontrado no JSON!", "ERROR")
-        except Exception as e:
-            log(f"⚠️ Could not read JSON file: {e}", "WARN")
-        
-        # Configurar variáveis de ambiente para CLI antiga
-        env = os.environ.copy()
-        if not is_new_cli:
-            env['DATABRICKS_JOBS_API_VERSION'] = '2.1'
-        
-        if job_id:
-            log(f"🔄 Atualizando job existente ID: {job_id}")
-            if is_new_cli:
-                # CLI nova: não tem --json-file, usa stdin
-                with open('magic.json', 'r', encoding='utf-8') as f:
-                    json_content = f.read()
-                result = subprocess.run(
-                    ['databricks', 'jobs', 'reset', str(job_id)],
-                    input=json_content,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=env
-                )
-            else:
-                # CLI antiga: usa --json-file
-                result = subprocess.run(
-                    ['databricks', 'jobs', 'reset', '--job-id', str(job_id), '--json-file', 'magic.json'],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=env
-                )
-            log("✅ Job atualizado com sucesso!")
-        else:
-            log("🆕 Criando novo job...")
-            if is_new_cli:
-                # CLI nova: não tem --json-file, usa stdin
-                with open('magic.json', 'r', encoding='utf-8') as f:
-                    json_content = f.read()
-                result = subprocess.run(
-                    ['databricks', 'jobs', 'create'],
-                    input=json_content,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=env
-                )
-            else:
-                # CLI antiga: usa --json-file
-                result = subprocess.run(
-                    ['databricks', 'jobs', 'create', '--json-file', 'magic.json'],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    env=env
-                )
-            log("✅ Job criado com sucesso!")
-        
-        log(f"📄 Resposta do Databricks: {result.stdout}")
-        
-        # Parse response to get job ID
-        try:
-            response_data = json.loads(result.stdout)
-            new_job_id = response_data.get('job_id')
-            if new_job_id:
-                log(f"🎯 Job ID: {new_job_id}")
-        except:
-            log("⚠️ Não foi possível extrair o Job ID da resposta", "WARN")
-        
+        for yaml_path, job_key in DEPLOY_ORDER:
+            job_id = deploy_one_job(yaml_path, job_key, is_new_cli, job_ids_by_key)
+            job_ids_by_key[job_key] = job_id
         return True
-        
     except subprocess.CalledProcessError as e:
         log(f"❌ Erro no deploy: {e}", "ERROR")
         log(f"📄 stdout: {e.stdout}", "DEBUG")
@@ -283,75 +205,56 @@ def deploy_job():
         log(f"❌ Erro inesperado: {e}", "ERROR")
         return False
 
+
 def verify_deployment():
-    """Verifica se o deploy foi bem-sucedido"""
+    """Verifica se todos os jobs foram deployados"""
     try:
         log("🔍 Verificando deploy...")
         sleep_time = 30
         log(f"⏳ Aguardando {sleep_time} segundos para verificação...")
-        
         import time
         time.sleep(sleep_time)
-        
+
         result = subprocess.run(
-            ['databricks', 'jobs', 'list', '--output', 'JSON'],
-            capture_output=True,
-            text=True,
-            check=True
+            ["databricks", "jobs", "list", "--output", "JSON"], capture_output=True, text=True, check=True,
         )
-        
         jobs_data = json.loads(result.stdout)
-        mtg_job = None
-        
-        for job in jobs_data.get('jobs', []):
-            if job.get('settings', {}).get('name') == 'MTG_PIPELINE':
-                mtg_job = job
-                break
-        
-        if mtg_job:
-            job_id = mtg_job.get('job_id')
-            status = mtg_job.get('settings', {}).get('schedule', {}).get('pause_status', 'UNKNOWN')
-            log(f"✅ Job verificado - ID: {job_id}, Status: {status}")
-            
-            # Log job details
-            log("📊 Detalhes do Job:")
-            log(f"  - Nome: {mtg_job.get('settings', {}).get('name')}")
-            log(f"  - Descrição: {mtg_job.get('settings', {}).get('description', 'N/A')}")
-            log(f"  - Status do Schedule: {status}")
-            log(f"  - Total de Tasks: {len(mtg_job.get('settings', {}).get('tasks', []))}")
-            
-            return True
-        else:
-            log("❌ Job não encontrado após deploy", "ERROR")
-            return False
-            
+        names_found = {job.get("settings", {}).get("name") for job in jobs_data.get("jobs", [])}
+
+        all_ok = True
+        for _, job_key in DEPLOY_ORDER:
+            if job_key in names_found:
+                log(f"✅ {job_key} verificado")
+            else:
+                log(f"❌ {job_key} não encontrado após deploy", "ERROR")
+                all_ok = False
+        return all_ok
     except Exception as e:
         log(f"❌ Erro na verificação: {e}", "ERROR")
         return False
 
+
 def cleanup():
     """Limpa arquivos temporários"""
     try:
-        if os.path.exists('magic.json'):
-            os.remove('magic.json')
+        if os.path.exists(JSON_TMP):
+            os.remove(JSON_TMP)
             log("🧹 Arquivo temporário removido")
     except Exception as e:
         log(f"⚠️ Erro na limpeza: {e}", "WARN")
 
+
 if __name__ == "__main__":
     log("🚀 Iniciando deploy do pipeline...")
     log("=" * 60)
-    
+
     try:
-        # Deploy the job
-        deploy_success = deploy_job()
-        
+        deploy_success = deploy_all()
+
         if deploy_success:
             log("✅ Deploy executado com sucesso!")
-            
-            # Verify deployment
             verify_success = verify_deployment()
-            
+
             if verify_success:
                 log("🎉 Deploy e verificação concluídos com sucesso!")
                 log("=" * 60)
@@ -364,7 +267,7 @@ if __name__ == "__main__":
             log("💥 Falha no deploy!", "ERROR")
             log("=" * 60)
             sys.exit(1)
-            
+
     except KeyboardInterrupt:
         log("⚠️ Deploy interrompido pelo usuário", "WARN")
         sys.exit(1)
@@ -372,4 +275,4 @@ if __name__ == "__main__":
         log(f"💥 Erro crítico: {e}", "ERROR")
         sys.exit(1)
     finally:
-        cleanup() 
+        cleanup()

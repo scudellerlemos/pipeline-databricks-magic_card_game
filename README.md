@@ -93,7 +93,10 @@ pipeline-databricks-magic_card_game/
 │   ├── 📁 scripts/
 │   │   └── deploy.py               # 🚀 Script de Deploy
 │   └── 📁 DAGs/
-│       └── magic.yml               # 📋 Configuração do Job
+│       ├── stage.yml                # 📋 Job MTG_STAGE
+│       ├── bronze.yml               # 📋 Job MTG_BRONZE
+│       ├── pipeline.yml             # 📋 Job MTG_PIPELINE (orquestrador)
+│       └── magic.yml                # 📋 Job MTG_SILVER_GOLD
 │
 └── 📄 README.md                    # 📖 Este arquivo
 ```

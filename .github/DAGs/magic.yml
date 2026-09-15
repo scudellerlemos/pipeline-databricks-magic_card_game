@@ -1,119 +1,24 @@
 resources:
   jobs:
-    MTG_PIPELINE:
-      name: MTG_PIPELINE
-      description: "Pipeline de dados da API de Magic: The Gathering"
-      schedule:
-        # Executa diariamente às 6h
-        quartz_cron_expression: "0 0 6 * * ?"
-        timezone_id: America/Sao_Paulo
-        pause_status: UNPAUSED
+    # Silver/Gold ficam como estavam (mesmas tasks, mesmas dependencias
+    # internas) - so viraram um job proprio, acionado pelo orquestrador
+    # (pipeline.yml) depois que MTG_BRONZE termina inteira. Por isso
+    # perderam o depends_on em bronze_cartas/bronze_colecao: essas tasks
+    # nao existem mais neste job, e a ordem ja e garantida por fora.
+    MTG_SILVER_GOLD:
+      name: MTG_SILVER_GOLD
+      description: "Camadas Silver e Gold do pipeline de Magic: The Gathering"
       tasks:
-        # ============================================================================
-        # INGESTÃO - STAGING
-        # ============================================================================
-        - task_key: stage_cartas
-          notebook_task:
-            notebook_path: src/01 - Ingestion/cards
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_colecao
-          notebook_task:
-            notebook_path: src/01 - Ingestion/sets
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_precos
-          notebook_task:
-            notebook_path: src/01 - Ingestion/card_prices
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_simbologia
-          notebook_task:
-            notebook_path: src/01 - Ingestion/symbology
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_regras
-          notebook_task:
-            notebook_path: src/01 - Ingestion/rulings
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: stage_migracoes
-          notebook_task:
-            notebook_path: src/01 - Ingestion/migrations
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        # ============================================================================
-        # BRONZE LAYER
-        # ============================================================================
-        - task_key: bronze_cartas
-          depends_on:
-            - task_key: stage_cartas
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/cards
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: bronze_colecao
-          depends_on:
-            - task_key: stage_colecao
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/sets
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: bronze_precos
-          depends_on:
-            - task_key: stage_precos
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/card_prices
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: bronze_simbologia
-          depends_on:
-            - task_key: stage_simbologia
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/symbology
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: bronze_regras
-          depends_on:
-            - task_key: stage_regras
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/rulings
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: bronze_migracoes
-          depends_on:
-            - task_key: stage_migracoes
-          notebook_task:
-            notebook_path: src/02 - Bronze/Dev/migrations
-            source: GIT
-          job_cluster_key: Job_cluster
-
         # ============================================================================
         # SILVER LAYER
         # ============================================================================
         - task_key: silver_cartas
-          depends_on:
-            - task_key: bronze_cartas
-            - task_key: bronze_precos
           notebook_task:
             notebook_path: src/03 - Silver/Dev/TB_FATO_SILVER_CARDS
             source: GIT
           job_cluster_key: Job_cluster
 
         - task_key: silver_colecao
-          depends_on:
-            - task_key: bronze_colecao
           notebook_task:
             notebook_path: src/03 - Silver/Dev/TB_REF_SILVER_SETS
             source: GIT
@@ -145,10 +50,7 @@ resources:
             notebook_path: src/04 - Gold/Dev/TB_REPORT_ALERTAS_EXECUTIVOS
             source: GIT
           job_cluster_key: Job_cluster
-          
-      # ============================================================================
-      # CLUSTER CONFIGURATION
-      # ============================================================================
+
       job_clusters:
         - job_cluster_key: Job_cluster
           new_cluster:
@@ -166,26 +68,15 @@ resources:
               spark.databricks.delta.preview.enabled: "true"
               spark.databricks.delta.optimizeWrite.enabled: "true"
               spark.databricks.delta.autoCompact.enabled: "true"
-              
-      # ============================================================================
-      # GIT CONFIGURATION
-      # ============================================================================
+
       git_source:
         git_url: "https://github.com/scudellerlemos/pipeline-databricks-magic_card_game"
         git_provider: "gitHub"
         git_branch: "main"
-        
-      # ============================================================================
-      # TAGS AND METADATA
-      # ============================================================================
+
       tags:
         project: "MTG"
         environment: "production"
         team: "data-engineering"
         api_source: "scryfall"
-        
-      # ============================================================================
-      # QUEUE CONFIGURATION
-      # ============================================================================
-      # queue:
-      #   enabled: true 
+        layer: "silver-gold"
