@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pyspark.errors import AnalysisException
-from pyspark.sql.functions import current_timestamp, input_file_name, lit
+from pyspark.sql.functions import col, current_timestamp, lit
 
 # get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
 # chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
@@ -57,12 +57,12 @@ def normalize_path(path):
     """Remove o esquema de URI e desce ao nível do diretório ".parquet" para
     comparação de identidade.
 
-    dbutils.fs.ls() e input_file_name() podem devolver esquemas diferentes
-    pro mesmo arquivo físico no Databricks (ex.: s3:// vs s3a://) - sem essa
-    normalização, a comparação de idempotência nunca bateria e cada run
-    reprocessaria e duplicaria todo o histórico da Stage silenciosamente.
+    dbutils.fs.ls() e a coluna _metadata.file_path podem devolver esquemas
+    diferentes pro mesmo arquivo físico no Databricks (ex.: s3:// vs s3a://) -
+    sem essa normalização, a comparação de idempotência nunca bateria e cada
+    run reprocessaria e duplicaria todo o histórico da Stage silenciosamente.
 
-    input_file_name() aponta pro part-file real DENTRO do diretório
+    _metadata.file_path aponta pro part-file real DENTRO do diretório
     ".parquet" (ex.: ".../2026_09_15_cards.parquet/part-00000-xxx.snappy.parquet"),
     enquanto list_stage_files devolve o diretório em si. Sem truncar no
     primeiro ".parquet/", as duas nunca bateriam e a Bronze reprocessaria o
@@ -244,8 +244,11 @@ def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
             return None, run
 
         print(f"[{bronze_table_name}] Arquivos novos da Stage: {len(new_files)}")
+        # input_file_name() não é suportado em Unity Catalog com Shared/User
+        # Isolation ([UC_COMMAND_NOT_SUPPORTED.WITH_RECOMMENDATION]) - o
+        # substituto recomendado é a coluna oculta _metadata.file_path.
         df = spark.read.parquet(*new_files) \
-            .withColumn("source_file", input_file_name()) \
+            .withColumn("source_file", col("_metadata.file_path")) \
             .withColumn("bronze_run_id", lit(run["run_id"])) \
             .withColumn("bronze_ingestion_timestamp", current_timestamp()) \
             .cache()

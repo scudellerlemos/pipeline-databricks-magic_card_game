@@ -11,7 +11,7 @@
 def normalize_path(path):
     """Mirrors bronze_utils.normalize_path: strip URI scheme and truncate to
     the ".parquet" directory level (df.write.save() always writes a
-    directory - input_file_name() points at a part-file inside it)."""
+    directory - _metadata.file_path points at a part-file inside it)."""
     path = path.split("://", 1)[-1]
     if ".parquet/" in path:
         path = path.split(".parquet/", 1)[0] + ".parquet"
@@ -70,7 +70,7 @@ def test_rerun_same_day_is_noop():
 
 
 def test_scheme_mismatch_does_not_cause_reprocessing():
-    # dbutils.fs.ls() pode devolver s3:// enquanto input_file_name() (já
+    # dbutils.fs.ls() pode devolver s3:// enquanto _metadata.file_path (já
     # normalizado em get_already_loaded_files) devolveu s3a:// pro mesmo
     # arquivo - sem normalize_path, isto reprocessaria e duplicaria histórico.
     all_files = ["s3://b/stage/2026_09_14_cards.parquet"]
@@ -120,7 +120,7 @@ def test_list_stage_files_filter_matches_directory_entries():
 
 
 def test_normalize_path_truncates_part_file_to_parquet_dir():
-    # input_file_name() aponta pro part-file dentro do diretório ".parquet";
+    # _metadata.file_path aponta pro part-file dentro do diretório ".parquet";
     # list_stage_files devolve o diretório em si - sem truncar, nunca bateriam.
     part_file = "s3://b/stage/cards/2026_09_15_cards.parquet/part-00000-x.snappy.parquet"
     directory = "s3://b/stage/cards/2026_09_15_cards.parquet"
@@ -129,7 +129,7 @@ def test_normalize_path_truncates_part_file_to_parquet_dir():
 
 def test_already_loaded_part_file_marks_directory_as_not_new():
     # Reproduz o fluxo real: get_already_loaded_files devolve o part-file
-    # (via input_file_name()); list_stage_files devolve o diretório. Depois
+    # (via _metadata.file_path); list_stage_files devolve o diretório. Depois
     # da normalização, o mesmo arquivo da Stage não deve ser visto como novo.
     already_loaded = {normalize_path(
         "s3a://b/stage/cards/2026_09_15_cards.parquet/part-00000-x.snappy.parquet"
