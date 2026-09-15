@@ -14,6 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # separately below, not here - "%run".startswith("%r") would else misfire)
 SKIP_MAGICS = {"%sql", "%scala", "%md", "%sh", "%fs", "%r"}
 RUN_RE = re.compile(r"^%run\s+(.+)$")
+NOTEBOOK_SOURCE_HEADER = "# Databricks notebook source"
+COMMAND_SEP_RE = re.compile(r"^# COMMAND -+$")
+MAGIC_LINE_RE = re.compile(r"^# MAGIC ?(.*)$")
 STAR_IMPORT_RE = re.compile(r"^from\s+(\S+)\s+import\s+\*\s*$")
 DATABRICKS_STUB = "spark = dbutils = display = displayHTML = sqlContext = table = None\n"
 # `import *` disables pyflakes' undefined-name check for the WHOLE file (it
@@ -52,40 +55,78 @@ def substitute_star_imports(text):
     return "\n".join(out)
 
 
+def process_cell(source, notebook_path, visited, chunks):
+    first_line = next((l for l in source.splitlines() if l.strip()), "")
+    first_token = first_line.lstrip().split(None, 1)[0] if first_line.strip() else ""
+    if first_token in SKIP_MAGICS or first_token.startswith("%%"):
+        return  # whole cell is non-Python (%sql, %md, ...)
+
+    kept = []
+    for line in source.splitlines():
+        stripped = line.lstrip()
+        run_match = RUN_RE.match(stripped)
+        if run_match:
+            # %run inlines another notebook/source-linked .py into this
+            # namespace at runtime (Databricks Repos) - mirror that here
+            # so names it defines (e.g. get_secret) aren't flagged undefined.
+            target = resolve_run_target(notebook_path, run_match.group(1))
+            if target and target not in visited:
+                visited.add(target)
+                chunks.append(substitute_star_imports(target.read_text(encoding="utf-8")))
+            continue
+        if stripped.startswith("%"):
+            continue  # drop other inline magics
+        kept.append(line)
+    chunks.append(substitute_star_imports("\n".join(kept)))
+
+
+def iter_source_format_cells(text):
+    # Databricks "source format" .py: header line, cells split on
+    # "# COMMAND ----------", non-Python magic lines prefixed "# MAGIC ".
+    # Strip that prefix back off so each cell's text matches the shape an
+    # .ipynb cell's source already has, and process_cell needs no changes.
+    lines = text.splitlines()
+    if lines and lines[0].strip() == NOTEBOOK_SOURCE_HEADER:
+        lines = lines[1:]
+    cell_lines = []
+    for line in lines:
+        if COMMAND_SEP_RE.match(line):
+            yield "\n".join(cell_lines)
+            cell_lines = []
+            continue
+        magic_match = MAGIC_LINE_RE.match(line)
+        cell_lines.append(magic_match.group(1) if magic_match else line)
+    yield "\n".join(cell_lines)
+
+
+def is_source_format_notebook(path):
+    try:
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+    except IndexError:
+        return False
+    return first_line.strip() == NOTEBOOK_SOURCE_HEADER
+
+
 def extract_python(notebook_path, visited):
-    nb = json.loads(notebook_path.read_text(encoding="utf-8"))
     chunks = []
+    if notebook_path.suffix == ".py":
+        for cell_source in iter_source_format_cells(notebook_path.read_text(encoding="utf-8")):
+            process_cell(cell_source, notebook_path, visited, chunks)
+        return "\n\n".join(chunks)
+
+    nb = json.loads(notebook_path.read_text(encoding="utf-8"))
     for cell in nb.get("cells", []):
         if cell.get("cell_type") != "code":
             continue
         source = "".join(cell.get("source", []))
-        first_line = next((l for l in source.splitlines() if l.strip()), "")
-        first_token = first_line.lstrip().split(None, 1)[0] if first_line.strip() else ""
-        if first_token in SKIP_MAGICS or first_token.startswith("%%"):
-            continue  # whole cell is non-Python (%sql, %md, ...)
-
-        kept = []
-        for line in source.splitlines():
-            stripped = line.lstrip()
-            run_match = RUN_RE.match(stripped)
-            if run_match:
-                # %run inlines another notebook/source-linked .py into this
-                # namespace at runtime (Databricks Repos) - mirror that here
-                # so names it defines (e.g. get_secret) aren't flagged undefined.
-                target = resolve_run_target(notebook_path, run_match.group(1))
-                if target and target not in visited:
-                    visited.add(target)
-                    chunks.append(substitute_star_imports(target.read_text(encoding="utf-8")))
-                continue
-            if stripped.startswith("%"):
-                continue  # drop other inline magics
-            kept.append(line)
-        chunks.append(substitute_star_imports("\n".join(kept)))
+        process_cell(source, notebook_path, visited, chunks)
     return "\n\n".join(chunks)
 
 
 def main():
-    notebooks = sorted(REPO_ROOT.glob("src/**/*.ipynb"))
+    notebooks = sorted(REPO_ROOT.glob("src/**/*.ipynb")) + sorted(
+        p for p in REPO_ROOT.glob("src/**/*.py") if is_source_format_notebook(p)
+    )
     failed = False
     with tempfile.TemporaryDirectory() as tmp:
         for nb_path in notebooks:

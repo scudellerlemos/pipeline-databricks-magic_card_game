@@ -1,18 +1,19 @@
 # ponytail: same approach as test_cards.py - the notebook cell isn't an
-# importable .py, so load its source straight out of the .ipynb JSON and exec
-# it with a fake `requests` (single Scryfall /sets response).
+# importable module on its own, so load the "FUNÇÕES ESPECÍFICAS" cell's
+# source straight out of the .py notebook and exec it with a fake `requests`
+# (single Scryfall /sets response).
 
 import json
 import os
 import sys
 
-_NB_PATH = os.path.join(os.path.dirname(__file__), "sets.ipynb")
+_NB_PATH = os.path.join(os.path.dirname(__file__), "sets.py")
+_MARKER = "FUNÇÕES ESPECÍFICAS DE SETS"
 
 
 def _load_functions(fake_get):
-    with open(_NB_PATH, encoding="utf-8") as f:
-        nb = json.load(f)
-    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: sets-specific functions
+    cells = open(_NB_PATH, encoding="utf-8").read().split("# COMMAND ----------")
+    cell_source = next(c for c in cells if _MARKER in c)
 
     ns = {
         "json": json,
