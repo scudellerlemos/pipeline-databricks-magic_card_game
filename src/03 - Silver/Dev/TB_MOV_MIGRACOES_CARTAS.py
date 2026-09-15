@@ -14,10 +14,10 @@ Dimensao/DOM (nao descreve uma entidade estavel) - daí o prefixo TB_MOV_.
 
 ORIGEM (AUD-20 / #135, relocado nesta revisao): esta logica de resolucao de
 cadeia de migracao vivia em TB_FATO_CARTAS.ipynb (attach_canonical_id /
-_resolve_id_chain), anexando Id_scryfall_canonico direto na tabela de cartas.
+_resolve_id_chain), anexando ID_SCRYFALL_CANONICO direto na tabela de cartas.
 Com a separacao de Fatos por fonte (ver docstring de TB_FATO_PRECOS_CARTAS),
 essa logica passa a viver aqui, na propria tabela de migracoes - Gold junta
-por Id_carta_antigo/Id_carta_canonico quando precisar resolver uma migracao
+por ID_CARTA_ANTIGO/ID_CARTA_CANONICO quando precisar resolver uma migracao
 no meio de uma janela de analise.
 
 RESOLUCAO EM CADEIA: A mesma migracoes pode encadear (A funde em B, B funde
@@ -26,18 +26,19 @@ dict pequeno (historico de migracoes, nao dado de carta) - sem exigir SQL
 recursivo, que esta versao do Spark nao suporta via CTE. Testado isoladamente
 em test_migration_chain.py.
 
-CHAVE UNICA: Id_migracao (id do proprio registro de migracao na Scryfall -
+CHAVE UNICA: ID_MIGRACAO (id do proprio registro de migracao na Scryfall -
 sempre presente e nunca nulo na fonte, ver save_silver_table no fim do
 notebook) - diferente de TB_FATO_CARTAS, aqui a chave e uma unica coluna NOT
 NULL, Unity Catalog consegue declarar a constraint PRIMARY KEY de verdade.
 
-REGRA "SEM ( ) { } NO DADO SILVER": Desc_nota e texto livre da Scryfall e
+REGRA "SEM ( ) { } NO DADO SILVER": DESC_NOTA e texto livre da Scryfall e
 pode conter parenteses - mesma conversao pra colchete ([...]) usada em
 TB_FATO_CARTAS, por consistencia em toda a camada Silver.
 
-CONVENCAO DE NOME/CASE DE COLUNA: mesma de TB_FATO_CARTAS (ver docstring de
-la) - prefixo semantico + primeira letra maiuscula, resto minusculo, sem
-acento, 100% PT-BR a partir da Silver.
+CONVENCAO DE NOME/CASE DE COLUNA (pedido do usuario): mesma de TB_FATO_CARTAS
+(ver docstring de la) - nome de coluna 100% MAIUSCULO, valor de atributo em
+Title_Case por palavra sem acento (normalizar_valor() em silver_utils.py),
+exceto COD_/ID_/URL_* e texto livre longo.
 """
 
 # =============================================================================
@@ -78,7 +79,7 @@ def setup_logging():
 
 def _resolve_id_chain(direct_map):
     """
-    Segue a cadeia de merges Id_carta_antigo -> Id_carta_novo ate o id final
+    Segue a cadeia de merges ID_CARTA_ANTIGO -> ID_CARTA_NOVO ate o id final
     (A mergeou em B, B mergeou em C -> A resolve pra C). Puro Python sobre um
     dict pequeno (historico de migracoes da Scryfall, nao dado de carta) - sem
     exigir SQL recursivo, que esta versao do Spark nao suporta via CTE.
@@ -119,55 +120,56 @@ def transform_migrations_silver(df):
     spark.sql("""
         CREATE OR REPLACE TEMP VIEW _migrations_stage0 AS
         SELECT
-            id AS Id_migracao,
-            uri AS Url_scryfall,
-            performed_at AS Dt_execucao,
-            migration_strategy AS Nme_estrategia_migracao,
-            old_scryfall_id AS Id_carta_antigo,
-            new_scryfall_id AS Id_carta_novo,
-            note AS Desc_nota,
-            metadata_id AS Id_carta_associada,
-            metadata_lang AS Cod_idioma,
-            metadata_name AS Nme_carta_associada,
-            metadata_set_code AS Cod_colecao_associada,
-            metadata_oracle_id AS Id_oracle_associado,
-            metadata_collector_number AS Num_colecionador_associado,
-            ingestion_timestamp AS Dt_ingestao,
-            source AS Nme_fonte,
-            endpoint AS Desc_url_origem,
-            source_file AS Desc_arquivo_origem,
-            bronze_run_id AS Id_execucao_bronze,
-            bronze_ingestion_timestamp AS Dt_ingestao_bronze
+            id AS ID_MIGRACAO,
+            uri AS URL_SCRYFALL,
+            performed_at AS DT_EXECUCAO,
+            migration_strategy AS NME_ESTRATEGIA_MIGRACAO,
+            old_scryfall_id AS ID_CARTA_ANTIGO,
+            new_scryfall_id AS ID_CARTA_NOVO,
+            note AS DESC_NOTA,
+            metadata_id AS ID_CARTA_ASSOCIADA,
+            metadata_lang AS COD_IDIOMA,
+            metadata_name AS NME_CARTA_ASSOCIADA,
+            metadata_set_code AS COD_COLECAO_ASSOCIADA,
+            metadata_oracle_id AS ID_ORACLE_ASSOCIADO,
+            metadata_collector_number AS NUM_COLECIONADOR_ASSOCIADO,
+            ingestion_timestamp AS DT_INGESTAO,
+            source AS NME_FONTE,
+            endpoint AS DESC_URL_ORIGEM,
+            source_file AS DESC_ARQUIVO_ORIGEM,
+            bronze_run_id AS ID_EXECUCAO_BRONZE,
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
         FROM _migrations_bronze
     """)
 
-    # Estagio 1: traducao de Nme_estrategia_migracao pra termo de negocio,
-    # limpeza de Desc_nota (NA quando vazio + parenteses -> colchete, mesma
-    # regra de TB_FATO_CARTAS), cast de data e derivacao de Ano_execucao/
-    # Mes_execucao a partir de Dt_execucao - usadas so como partition_cols.
+    # Estagio 1: traducao de NME_ESTRATEGIA_MIGRACAO pra termo de negocio,
+    # limpeza de DESC_NOTA (NA quando vazio + parenteses -> colchete, mesma
+    # regra de TB_FATO_CARTAS), cast de data e derivacao de ANO_EXECUCAO/
+    # MES_EXECUCAO a partir de DT_EXECUCAO - usadas so como partition_cols.
     df_final = spark.sql(r"""
         SELECT
             -- so as colunas com transformacao real ficam explicitas (mesmo
             -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
             -- (ids/colunas associadas, linhagem etc.) ja saiu do Estagio 0
             -- com nome PT-BR final e so passa direto.
-            * EXCEPT (Dt_execucao, Nme_estrategia_migracao, Desc_nota,
-                      Dt_ingestao, Nme_fonte),
+            * EXCEPT (DT_EXECUCAO, NME_ESTRATEGIA_MIGRACAO, DESC_NOTA,
+                      DT_INGESTAO, NME_FONTE, NME_CARTA_ASSOCIADA),
 
-            to_date(Dt_execucao) AS Dt_execucao,
+            to_date(DT_EXECUCAO) AS DT_EXECUCAO,
             CASE
-                WHEN Nme_estrategia_migracao = 'merge' THEN 'Unificacao'
-                WHEN Nme_estrategia_migracao = 'delete' THEN 'Remocao'
-                ELSE Nme_estrategia_migracao
-            END AS Nme_estrategia_migracao,
+                WHEN NME_ESTRATEGIA_MIGRACAO = 'merge' THEN 'Unificacao'
+                WHEN NME_ESTRATEGIA_MIGRACAO = 'delete' THEN 'Remocao'
+                ELSE NME_ESTRATEGIA_MIGRACAO
+            END AS NME_ESTRATEGIA_MIGRACAO,
             CASE
-                WHEN Desc_nota IS NULL OR Desc_nota = '' THEN 'NA'
-                ELSE regexp_replace(regexp_replace(trim(Desc_nota), '\\(([^)]*)\\)', '[$1]'), '\\{([^}]*)\\}', '[$1]')
-            END AS Desc_nota,
-            to_timestamp(Dt_ingestao) AS Dt_ingestao,
-            CASE WHEN Nme_fonte IS NULL OR Nme_fonte = '' THEN 'NA' ELSE initcap(trim(Nme_fonte)) END AS Nme_fonte,
-            year(to_date(Dt_execucao)) AS Ano_execucao,
-            month(to_date(Dt_execucao)) AS Mes_execucao
+                WHEN DESC_NOTA IS NULL OR DESC_NOTA = '' THEN 'NA'
+                ELSE regexp_replace(regexp_replace(trim(DESC_NOTA), '\\(([^)]*)\\)', '[$1]'), '\\{([^}]*)\\}', '[$1]')
+            END AS DESC_NOTA,
+            to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
+            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
+            normalizar_valor(NME_CARTA_ASSOCIADA) AS NME_CARTA_ASSOCIADA,
+            year(to_date(DT_EXECUCAO)) AS ANO_EXECUCAO,
+            month(to_date(DT_EXECUCAO)) AS MES_EXECUCAO
         FROM _migrations_stage0
     """)
 
@@ -176,36 +178,36 @@ def transform_migrations_silver(df):
 
 def attach_canonical_id(df_migrations):
     """
-    Resolve a cadeia de unificacoes (Id_carta_antigo -> Id_carta_novo) e
-    anexa Id_carta_canonico - o id final apos seguir merges sucessivos.
-    Estrategia 'Remocao' fica fora do mapa de resolucao (sem Id_carta_novo,
+    Resolve a cadeia de unificacoes (ID_CARTA_ANTIGO -> ID_CARTA_NOVO) e
+    anexa ID_CARTA_CANONICO - o id final apos seguir merges sucessivos.
+    Estrategia 'Remocao' fica fora do mapa de resolucao (sem ID_CARTA_NOVO,
     nao ha pra onde apontar) - essas linhas mantem
-    Id_carta_canonico = Id_carta_antigo, unico comportamento possivel sem
+    ID_CARTA_CANONICO = ID_CARTA_ANTIGO, unico comportamento possivel sem
     inventar um id que a Scryfall nao forneceu.
     """
     logger = logging.getLogger(__name__)
 
     # orderBy antes do collect(): sem ordem explicita, collect() nao garante a
     # mesma ordem de linhas entre runs - se uma carta migrar mais de uma vez
-    # (Id_carta_antigo repetido com Id_carta_novo diferente), o dict abaixo
-    # pegaria um Id_carta_novo diferente a cada execucao. Ordenando por
-    # Dt_execucao (+ Id_migracao como desempate estavel), a migracao mais
+    # (ID_CARTA_ANTIGO repetido com ID_CARTA_NOVO diferente), o dict abaixo
+    # pegaria um ID_CARTA_NOVO diferente a cada execucao. Ordenando por
+    # DT_EXECUCAO (+ ID_MIGRACAO como desempate estavel), a migracao mais
     # recente sempre vence de forma deterministica.
     merge_rows = (
         df_migrations
-        .filter("Nme_estrategia_migracao = 'Unificacao' AND Id_carta_novo IS NOT NULL")
-        .select("Id_carta_antigo", "Id_carta_novo", "Dt_execucao", "Id_migracao")
+        .filter("NME_ESTRATEGIA_MIGRACAO = 'Unificacao' AND ID_CARTA_NOVO IS NOT NULL")
+        .select("ID_CARTA_ANTIGO", "ID_CARTA_NOVO", "DT_EXECUCAO", "ID_MIGRACAO")
         .distinct()
-        .orderBy("Id_carta_antigo", "Dt_execucao", "Id_migracao")
+        .orderBy("ID_CARTA_ANTIGO", "DT_EXECUCAO", "ID_MIGRACAO")
         .collect()
     )
     direct_map = {}
     for r in merge_rows:
-        direct_map[r["Id_carta_antigo"]] = r["Id_carta_novo"]
+        direct_map[r["ID_CARTA_ANTIGO"]] = r["ID_CARTA_NOVO"]
     resolved_map = _resolve_id_chain(direct_map)
 
     if not resolved_map:
-        return df_migrations.withColumn("Id_carta_canonico", col("Id_carta_antigo"))
+        return df_migrations.withColumn("ID_CARTA_CANONICO", col("ID_CARTA_ANTIGO"))
 
     df_map = spark.createDataFrame(
         list(resolved_map.items()), ["_old_id", "_canonical_id"]
@@ -216,12 +218,12 @@ def attach_canonical_id(df_migrations):
     df_result = spark.sql("""
         SELECT
             mig.*,
-            coalesce(map._canonical_id, mig.Id_carta_antigo) AS Id_carta_canonico
+            coalesce(map._canonical_id, mig.ID_CARTA_ANTIGO) AS ID_CARTA_CANONICO
         FROM _migrations_pre_canonical mig
         LEFT JOIN _migration_resolved_map map
-            ON mig.Id_carta_antigo = map._old_id
+            ON mig.ID_CARTA_ANTIGO = map._old_id
     """)
-    logger.info(f"Id_carta_canonico resolvido para {len(resolved_map)} ids migrados.")
+    logger.info(f"ID_CARTA_CANONICO resolvido para {len(resolved_map)} ids migrados.")
     return df_result
 
 # =============================================================================
@@ -251,12 +253,12 @@ df_bronze = processor.extract_from_bronze("migrations")
 df_silver_stage = processor.transform_data(df_bronze, transform_migrations_silver)
 df_silver = attach_canonical_id(df_silver_stage)
 
-# Salvar na Silver com merge incremental por Id_migracao
+# Salvar na Silver com merge incremental por ID_MIGRACAO
 processor.save_silver_table(
     df_silver,
-    partition_cols=["Ano_execucao", "Mes_execucao"],
-    key_column="Id_migracao",
-    order_by_col="Dt_ingestao",
+    partition_cols=["ANO_EXECUCAO", "MES_EXECUCAO"],
+    key_column="ID_MIGRACAO",
+    order_by_col="DT_INGESTAO",
     table_comment=get_table_comment("TB_MOV_MIGRACOES_CARTAS"),
     column_comments=get_column_comments("TB_MOV_MIGRACOES_CARTAS")
 )

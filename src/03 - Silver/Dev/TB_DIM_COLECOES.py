@@ -8,20 +8,24 @@ Transformação e limpeza de dados da Bronze para Silver.
 
 CLASSIFICAÇÃO DAMA-DMBOK (#116): Dimensão - descreve a entidade de negócio
 "coleção/edição" (nome, tipo, data de lançamento, bloco...), sem medida
-quantitativa própria além de contagens descritivas (Qtd_cartas). É
-referenciada por Cod_colecao a partir de TB_FATO_CARTAS - não é uma lista de
+quantitativa própria além de contagens descritivas (QTD_CARTAS). É
+referenciada por COD_COLECAO a partir de TB_FATO_CARTAS - não é uma lista de
 domínio estática pequena (REF), é uma dimensão real que cresce a cada
 lançamento. Daí TB_DIM_ e não TB_REF_.
 
-CHAVE ÚNICA: Cod_colecao (código curto do set - sempre presente e nunca nulo
+CHAVE ÚNICA: COD_COLECAO (código curto do set - sempre presente e nunca nulo
 na fonte, ver save_silver_table no fim do notebook). Diferente de
 TB_FATO_CARTAS, aqui a chave é uma única coluna NOT NULL - Unity Catalog
 consegue declarar a constraint PRIMARY KEY de verdade (não só o comentário
 de tabela), ver silver_utils.save_to_silver.
 
-CONVENÇÃO DE NOME/CASE DE COLUNA: mesma de TB_FATO_CARTAS (ver docstring de
-lá) - prefixo semântico + primeira letra maiúscula, resto minúsculo, sem
-acento, 100% PT-BR a partir da Silver.
+CONVENÇÃO DE NOME/CASE DE COLUNA (pedido do usuário): nome de coluna 100%
+MAIÚSCULO (prefixo semântico + resto, ex.: COD_COLECAO, NME_COLECAO). Valor
+de atributo (colunas de nome/categoria) em Title_Case por palavra, sem
+acento, espaço virando "_" (ex.: "Standard Booster" -> "Standard_Booster") -
+ver normalizar_valor() em silver_utils.py. Exceção: COD_/ID_/URL_* e texto
+livre longo mantêm sua própria convenção de case (ver colunas específicas
+abaixo).
 
 CORREÇÃO DE BUGS (achados nesta revisão, escopo #116):
 - Este notebook nunca teve um Estágio 0 de renomeação: a SQL abaixo
@@ -84,48 +88,49 @@ def transform_sets_silver(df):
     # onlineOnly pode não existir em alguma carga da Bronze - cai pra NULL
     # tipado em vez de estourar AnalysisException (coluna é boolean, ver
     # README Bronze).
-    online_only_select = "onlineOnly AS Flg_somente_online" if "onlineOnly" in df.columns \
-        else "CAST(NULL AS BOOLEAN) AS Flg_somente_online"
+    online_only_select = "onlineOnly AS FLG_SOMENTE_ONLINE" if "onlineOnly" in df.columns \
+        else "CAST(NULL AS BOOLEAN) AS FLG_SOMENTE_ONLINE"
 
     # booster_0..19: a Stage explode a lista "booster" da fonte em 1 coluna
     # por posição (ver bronze_column_docs.py) - repassa aqui com nome PT-BR,
     # sem mudar o formato.
-    booster_cols_select = ", ".join(f"booster_{i} AS Desc_booster_slot_{i}" for i in range(20))
+    booster_cols_select = ", ".join(f"booster_{i} AS DESC_BOOSTER_SLOT_{i}" for i in range(20))
 
     # Estágio 0: SELECT explícito Bronze crua -> nome PT-BR final (ver
     # docstring do módulo) - nenhuma coluna sobra sem tradução.
     spark.sql(f"""
         CREATE OR REPLACE TEMP VIEW _sets_stage0 AS
         SELECT
-            upper(code) AS Cod_colecao,  -- normaliza case: TB_FATO_CARTAS tambem faz upper() em Cod_colecao, join entre as duas depende do mesmo case
-            name AS Nme_colecao,
-            type AS Nme_tipo_colecao,
-            border AS Nme_cor_borda,
-            mkm_id AS Id_cardmarket,
-            mkm_name AS Nme_cardmarket,
-            releaseDate AS Dt_lancamento,
-            gathererCode AS Cod_gatherer,
-            magicCardsInfoCode AS Cod_magiccardsinfo,
-            oldCode AS Cod_antigo,
+            upper(code) AS COD_COLECAO,  -- normaliza case: TB_FATO_CARTAS tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
+            name AS NME_COLECAO,
+            type AS NME_TIPO_COLECAO,
+            border AS NME_COR_BORDA,
+            mkm_id AS ID_CARDMARKET,
+            mkm_name AS NME_CARDMARKET,
+            releaseDate AS DT_LANCAMENTO,
+            gathererCode AS COD_GATHERER,
+            magicCardsInfoCode AS COD_MAGICCARDSINFO,
+            oldCode AS COD_ANTIGO,
             {online_only_select},
-            card_count AS Qtd_cartas,
-            parent_set_code AS Cod_colecao_pai,
-            block AS Nme_bloco,
-            icon_svg_uri AS Url_icone,
+            card_count AS QTD_CARTAS,
+            parent_set_code AS COD_COLECAO_PAI,
+            block AS NME_BLOCO,
+            icon_svg_uri AS URL_ICONE,
             {booster_cols_select},
-            ingestion_timestamp AS Dt_ingestao,
-            source AS Nme_fonte,
-            endpoint AS Desc_url_origem,
-            source_file AS Desc_arquivo_origem,
-            bronze_run_id AS Id_execucao_bronze,
-            bronze_ingestion_timestamp AS Dt_ingestao_bronze
+            ingestion_timestamp AS DT_INGESTAO,
+            source AS NME_FONTE,
+            endpoint AS DESC_URL_ORIGEM,
+            source_file AS DESC_ARQUIVO_ORIGEM,
+            bronze_run_id AS ID_EXECUCAO_BRONZE,
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
         FROM _sets_bronze
     """)
 
-    # Estágio 1: padronização de nomes (Title Case), Nme_fonte como 'NA' se
-    # nulo/vazio, conversão de data, e derivação de Ano_lancamento/
-    # Mes_lancamento (#115: RELEASE_YEAR/RELEASE_MONTH -> PT-BR) a partir de
-    # Dt_lancamento já convertida - antes essas duas colunas nunca existiram
+    # Estágio 1: padronização de valor (Title_Case/"_"/sem acento - ver
+    # normalizar_valor() em silver_utils.py), NME_FONTE como 'NA' se
+    # nulo/vazio, conversão de data, e derivação de ANO_LANCAMENTO/
+    # MES_LANCAMENTO (#115: RELEASE_YEAR/RELEASE_MONTH -> PT-BR) a partir de
+    # DT_LANCAMENTO já convertida - antes essas duas colunas nunca existiram
     # de fato nesta tabela (vinham direto, sem existir na Bronze).
     df_final = spark.sql("""
         SELECT
@@ -133,14 +138,17 @@ def transform_sets_silver(df):
             -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
             -- (booster_0..19, ids externos, linhagem etc.) ja saiu do
             -- Estagio 0 com nome PT-BR final e so passa direto.
-            * EXCEPT (Nme_colecao, Nme_tipo_colecao, Dt_lancamento, Nme_fonte),
+            * EXCEPT (NME_COLECAO, NME_TIPO_COLECAO, NME_CARDMARKET, NME_COR_BORDA, NME_BLOCO, DT_LANCAMENTO, NME_FONTE),
 
-            initcap(trim(Nme_colecao)) AS Nme_colecao,
-            initcap(trim(Nme_tipo_colecao)) AS Nme_tipo_colecao,
-            to_date(Dt_lancamento) AS Dt_lancamento,
-            CASE WHEN Nme_fonte IS NULL OR Nme_fonte = '' THEN 'NA' ELSE initcap(trim(Nme_fonte)) END AS Nme_fonte,
-            year(to_date(Dt_lancamento)) AS Ano_lancamento,
-            month(to_date(Dt_lancamento)) AS Mes_lancamento
+            normalizar_valor(NME_COLECAO) AS NME_COLECAO,
+            normalizar_valor(NME_TIPO_COLECAO) AS NME_TIPO_COLECAO,
+            normalizar_valor(NME_CARDMARKET) AS NME_CARDMARKET,
+            normalizar_valor(NME_COR_BORDA) AS NME_COR_BORDA,
+            normalizar_valor(NME_BLOCO) AS NME_BLOCO,
+            to_date(DT_LANCAMENTO) AS DT_LANCAMENTO,
+            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
+            year(to_date(DT_LANCAMENTO)) AS ANO_LANCAMENTO,
+            month(to_date(DT_LANCAMENTO)) AS MES_LANCAMENTO
         FROM _sets_stage0
     """)
 
@@ -175,8 +183,8 @@ df_silver = processor.transform_data(df_bronze, transform_sets_silver)
 # Salvar na Silver com merge incremental
 processor.save_silver_table(
     df_silver,
-    partition_cols=["Ano_lancamento", "Mes_lancamento"],
-    key_column="Cod_colecao",
+    partition_cols=["ANO_LANCAMENTO", "MES_LANCAMENTO"],
+    key_column="COD_COLECAO",
     table_comment=get_table_comment("TB_DIM_COLECOES"),
     column_comments=get_column_comments("TB_DIM_COLECOES")
 )

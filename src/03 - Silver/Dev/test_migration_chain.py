@@ -54,21 +54,21 @@ def test_independent_chains_dont_interfere():
 
 def _build_direct_map(rows_sorted_by_dt_and_id):
     """Mirror of the direct_map build loop in attach_canonical_id() (issue #135
-    followup): rows must arrive pre-sorted by (Id_carta_antigo, Dt_execucao,
-    Id_migracao) - same as the .orderBy() before .collect() in the notebook."""
+    followup): rows must arrive pre-sorted by (ID_CARTA_ANTIGO, DT_EXECUCAO,
+    ID_MIGRACAO) - same as the .orderBy() before .collect() in the notebook."""
     direct_map = {}
     for r in rows_sorted_by_dt_and_id:
-        direct_map[r["Id_carta_antigo"]] = r["Id_carta_novo"]
+        direct_map[r["ID_CARTA_ANTIGO"]] = r["ID_CARTA_NOVO"]
     return direct_map
 
 
 def test_direct_map_keeps_most_recent_migration_when_a_card_remerges():
-    # Id_carta_antigo "A" migrou duas vezes (re-mesclada depois de já ter
-    # mesclado antes) - ordenado por Dt_execucao, o loop deve ficar com a
+    # ID_CARTA_ANTIGO "A" migrou duas vezes (re-mesclada depois de já ter
+    # mesclado antes) - ordenado por DT_EXECUCAO, o loop deve ficar com a
     # migração mais recente (pra "C"), não a mais antiga (pra "B").
     rows_sorted = [
-        {"Id_carta_antigo": "A", "Id_carta_novo": "B", "Dt_execucao": "2024-01-01"},
-        {"Id_carta_antigo": "A", "Id_carta_novo": "C", "Dt_execucao": "2024-06-01"},
+        {"ID_CARTA_ANTIGO": "A", "ID_CARTA_NOVO": "B", "DT_EXECUCAO": "2024-01-01"},
+        {"ID_CARTA_ANTIGO": "A", "ID_CARTA_NOVO": "C", "DT_EXECUCAO": "2024-06-01"},
     ]
     assert _build_direct_map(rows_sorted) == {"A": "C"}
     # ordem invertida na entrada (simula collect() sem orderBy) daria "B" -

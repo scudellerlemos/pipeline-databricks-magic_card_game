@@ -24,8 +24,8 @@ processor = SilverTableProcessor("TB_FATO_CARTAS", config)
 
 df_bronze = processor.extract_from_bronze("cards")
 df_silver = processor.transform_data(df_bronze, transform_function)
-processor.save_silver_table(df_silver, partition_cols=["Ano_ingestao_preco", "Mes_ingestao_preco"],
-                             key_column="Id_carta", order_by_col="Dt_ingestao")
+processor.save_silver_table(df_silver, partition_cols=["ANO_INGESTAO", "MES_INGESTAO"],
+                             key_column="ID_CARTA", order_by_col="DT_INGESTAO")
 """
 
 from pyspark.sql.functions import col, hash, row_number
@@ -91,6 +91,29 @@ def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
         's3_bucket': s3_bucket,
         's3_silver_prefix': s3_silver_prefix or "silver"
     }
+
+# ============================================================================
+# NORMALIZAÇÃO DE VALOR DE ATRIBUTO (pedido do usuário)
+# Title_Case por palavra + "_" no lugar de espaço + sem acento (ex.:
+# "mana vermelha" -> "Mana_Vermelha"). SQL UDF temporária (CREATE TEMPORARY
+# FUNCTION) em vez de repetir a mesma expressão translate()+initcap() em toda
+# coluna de atributo de toda tabela Silver - registrada 1x por notebook
+# (SilverTableProcessor.__init__) e chamada só nas colunas de texto
+# categórico/nome (NÃO em Id_/Cod_/Url_ nem em texto livre longo, que têm
+# convenção de case própria - ver docstring de cada tabela).
+# ============================================================================
+def _register_value_normalizer(spark_session):
+    spark_session.sql("""
+        CREATE OR REPLACE TEMPORARY FUNCTION normalizar_valor(v STRING)
+        RETURNS STRING
+        RETURN CASE WHEN v IS NULL OR trim(v) = '' THEN v ELSE
+            regexp_replace(
+                initcap(translate(trim(v),
+                    'áàãâäÁÀÃÂÄéèêëÉÈÊËíìîïÍÌÎÏóòõôöÓÒÕÔÖúùûüÚÙÛÜçÇñÑ',
+                    'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUcCnN')),
+                ' ', '_')
+        END
+    """)
 
 # ============================================================================
 # FUNÇÕES DE EXTRAÇÃO DA BRONZE
@@ -348,6 +371,7 @@ class SilverTableProcessor:
         self.s3_silver_path = f"{self.config['s3_bucket']}/{self.config['s3_silver_prefix']}"
 
         setup_unity_catalog(self.config['catalog_name'], self.config['schema_silver'])
+        _register_value_normalizer(self.spark)
 
     def extract_from_bronze(self, bronze_table_name):
         """Extrai dados da Bronze"""

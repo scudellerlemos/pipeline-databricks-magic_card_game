@@ -12,22 +12,23 @@ evento (publicacao de um esclarecimento), sem medida quantitativa propria.
 Ainda assim e Fato e nao DOM/REF: cresce continuamente (a Wizards publica
 esclarecimento novo a cada carta lancada) e nao e uma lista de opcoes fixa.
 
-CHAVE UNICA - Id_esclarecimento (SURROGATE): a Bronze rulings nao traz um id
+CHAVE UNICA - ID_ESCLARECIMENTO (SURROGATE): a Bronze rulings nao traz um id
 proprio de registro (Scryfall so garante oracle_id + source + published_at +
-comment) - Id_esclarecimento e gerado por hash determinístico
+comment) - ID_ESCLARECIMENTO e gerado por hash determinístico
 (sha2(concat_ws('|', ...), 256)) sobre essas 4 colunas, garantindo o mesmo id
 em reprocessamentos do mesmo dado e permitindo declarar PRIMARY KEY de
 verdade (coluna sempre NOT NULL, diferente de derivar a chave de colunas que
 podem faltar).
 
-REGRA "SEM ( ) { } NO DADO SILVER": Desc_esclarecimento e texto de regras
+REGRA "SEM ( ) { } NO DADO SILVER": DESC_ESCLARECIMENTO e texto de regras
 livre e pode conter parenteses/chaves de notacao de simbolo - mesma
 conversao pra colchete ([...]) usada em TB_FATO_CARTAS, por consistencia em
 toda a camada Silver.
 
-CONVENCAO DE NOME/CASE DE COLUNA: mesma de TB_FATO_CARTAS (ver docstring de
-la) - prefixo semantico + primeira letra maiuscula, resto minusculo, sem
-acento, 100% PT-BR a partir da Silver.
+CONVENCAO DE NOME/CASE DE COLUNA (pedido do usuario): mesma de TB_FATO_CARTAS
+(ver docstring de la) - nome de coluna 100% MAIUSCULO, valor de atributo em
+Title_Case por palavra sem acento (normalizar_valor() em silver_utils.py),
+exceto COD_/ID_/URL_* e texto livre longo.
 """
 
 # =============================================================================
@@ -83,58 +84,62 @@ def transform_rulings_silver(df):
     spark.sql("""
         CREATE OR REPLACE TEMP VIEW _rulings_stage0 AS
         SELECT
-            oracle_id AS Id_oracle,
-            source AS Nme_emissor,
-            published_at AS Dt_publicacao,
-            comment AS Desc_esclarecimento,
-            ingestion_timestamp AS Dt_ingestao,
-            source AS Nme_fonte,
-            endpoint AS Desc_url_origem,
-            source_file AS Desc_arquivo_origem,
-            bronze_run_id AS Id_execucao_bronze,
-            bronze_ingestion_timestamp AS Dt_ingestao_bronze
+            oracle_id AS ID_ORACLE,
+            source AS NME_EMISSOR,
+            published_at AS DT_PUBLICACAO,
+            comment AS DESC_ESCLARECIMENTO,
+            ingestion_timestamp AS DT_INGESTAO,
+            source AS NME_FONTE,
+            endpoint AS DESC_URL_ORIGEM,
+            source_file AS DESC_ARQUIVO_ORIGEM,
+            bronze_run_id AS ID_EXECUCAO_BRONZE,
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
         FROM _rulings_bronze
     """)
 
-    # Estagio 1: traducao de Nme_emissor pra nome de negocio, limpeza de
-    # Desc_esclarecimento (parenteses/chaves -> colchete, mesma regra de
-    # TB_FATO_CARTAS), cast de data e derivacao de Ano_publicacao/
-    # Mes_publicacao a partir de Dt_publicacao - usadas so como
-    # partition_cols. Id_esclarecimento: hash deterministico sobre as 4
+    # Estagio 1: traducao de NME_EMISSOR pra nome de negocio, limpeza de
+    # DESC_ESCLARECIMENTO (parenteses/chaves -> colchete, mesma regra de
+    # TB_FATO_CARTAS), cast de data e derivacao de ANO_PUBLICACAO/
+    # MES_PUBLICACAO a partir de DT_PUBLICACAO - usadas so como
+    # partition_cols. ID_ESCLARECIMENTO: hash deterministico sobre as 4
     # colunas de negocio (ver docstring do modulo - a fonte nao fornece id
-    # proprio de registro).
+    # proprio de registro). O hash usa NME_EMISSOR/DT_PUBLICACAO/
+    # DESC_ESCLARECIMENTO como chegam do Estagio 0 (a referencia abaixo aponta
+    # pra _rulings_stage0, nao pro alias homonimo computado neste mesmo
+    # SELECT) - preserva o mesmo hash entre reprocessamentos independente da
+    # ordem das colunas na lista.
     df_final = spark.sql(r"""
         SELECT
             -- so as colunas com transformacao real ficam explicitas (mesmo
             -- precedente de TB_FATO_CARTAS.ipynb _cards_stage2); o resto
-            -- (Id_oracle, linhagem etc.) ja saiu do Estagio 0 com nome
+            -- (ID_ORACLE, linhagem etc.) ja saiu do Estagio 0 com nome
             -- PT-BR final e so passa direto.
-            * EXCEPT (Nme_emissor, Dt_publicacao, Desc_esclarecimento,
-                      Dt_ingestao, Nme_fonte),
+            * EXCEPT (NME_EMISSOR, DT_PUBLICACAO, DESC_ESCLARECIMENTO,
+                      DT_INGESTAO, NME_FONTE),
 
             sha2(
                 concat_ws('|',
-                    coalesce(Id_oracle, ''),
-                    coalesce(Nme_emissor, ''),
-                    coalesce(cast(to_date(Dt_publicacao) AS STRING), ''),
-                    coalesce(Desc_esclarecimento, '')
+                    coalesce(ID_ORACLE, ''),
+                    coalesce(NME_EMISSOR, ''),
+                    coalesce(cast(to_date(DT_PUBLICACAO) AS STRING), ''),
+                    coalesce(DESC_ESCLARECIMENTO, '')
                 ),
                 256
-            ) AS Id_esclarecimento,
+            ) AS ID_ESCLARECIMENTO,
             CASE
-                WHEN Nme_emissor = 'wotc' THEN 'Wizards'
-                WHEN Nme_emissor = 'scryfall' THEN 'Scryfall'
-                ELSE initcap(trim(Nme_emissor))
-            END AS Nme_emissor,
-            to_date(Dt_publicacao) AS Dt_publicacao,
+                WHEN NME_EMISSOR = 'wotc' THEN 'Wizards'
+                WHEN NME_EMISSOR = 'scryfall' THEN 'Scryfall'
+                ELSE normalizar_valor(NME_EMISSOR)
+            END AS NME_EMISSOR,
+            to_date(DT_PUBLICACAO) AS DT_PUBLICACAO,
             CASE
-                WHEN Desc_esclarecimento IS NULL OR Desc_esclarecimento = '' THEN 'NA'
-                ELSE regexp_replace(regexp_replace(trim(Desc_esclarecimento), '\\{([^}]*)\\}', '[$1]'), '\\(([^)]*)\\)', '[$1]')
-            END AS Desc_esclarecimento,
-            to_timestamp(Dt_ingestao) AS Dt_ingestao,
-            CASE WHEN Nme_fonte IS NULL OR Nme_fonte = '' THEN 'NA' ELSE initcap(trim(Nme_fonte)) END AS Nme_fonte,
-            year(to_date(Dt_publicacao)) AS Ano_publicacao,
-            month(to_date(Dt_publicacao)) AS Mes_publicacao
+                WHEN DESC_ESCLARECIMENTO IS NULL OR DESC_ESCLARECIMENTO = '' THEN 'NA'
+                ELSE regexp_replace(regexp_replace(trim(DESC_ESCLARECIMENTO), '\\{([^}]*)\\}', '[$1]'), '\\(([^)]*)\\)', '[$1]')
+            END AS DESC_ESCLARECIMENTO,
+            to_timestamp(DT_INGESTAO) AS DT_INGESTAO,
+            CASE WHEN NME_FONTE IS NULL OR NME_FONTE = '' THEN 'NA' ELSE normalizar_valor(NME_FONTE) END AS NME_FONTE,
+            year(to_date(DT_PUBLICACAO)) AS ANO_PUBLICACAO,
+            month(to_date(DT_PUBLICACAO)) AS MES_PUBLICACAO
         FROM _rulings_stage0
     """)
 
@@ -166,13 +171,13 @@ df_bronze = processor.extract_from_bronze("rulings")
 # Aplicar transformacao especifica
 df_silver = processor.transform_data(df_bronze, transform_rulings_silver)
 
-# Salvar na Silver com merge incremental por Id_esclarecimento (surrogate
+# Salvar na Silver com merge incremental por ID_ESCLARECIMENTO (surrogate
 # hash - ver docstring da celula anterior)
 processor.save_silver_table(
     df_silver,
-    partition_cols=["Ano_publicacao", "Mes_publicacao"],
-    key_column="Id_esclarecimento",
-    order_by_col="Dt_ingestao",
+    partition_cols=["ANO_PUBLICACAO", "MES_PUBLICACAO"],
+    key_column="ID_ESCLARECIMENTO",
+    order_by_col="DT_INGESTAO",
     table_comment=get_table_comment("TB_FATO_ESCLARECIMENTOS_CARTAS"),
     column_comments=get_column_comments("TB_FATO_ESCLARECIMENTOS_CARTAS")
 )

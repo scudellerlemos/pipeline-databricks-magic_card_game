@@ -7,19 +7,24 @@ Script Python para processamento da tabela TB_FATO_CARTAS.
 Transformação e limpeza de dados da Bronze para Silver.
 
 CLASSIFICAÇÃO DAMA-DMBOK (#116): Fato - uma linha por impressão de carta
-(grão), com medidas quantitativas (Qtd_custo_mana, Qtd_cores) e chaves
-estrangeiras implícitas pra dimensões (Cod_colecao -> TB_DIM_COLECOES). Daí o
+(grão), com medidas quantitativas (QTD_CUSTO_MANA, QTD_CORES) e chaves
+estrangeiras implícitas pra dimensões (COD_COLECAO -> TB_DIM_COLECOES). Daí o
 prefixo TB_FATO_ e o nome sem o segmento redundante "SILVER" (já implícito no
 schema silver.* do Unity Catalog).
 
-CHAVE ÚNICA: Id_carta (ver save_silver_table no fim do notebook) - NOT NULL
+CHAVE ÚNICA: ID_CARTA (ver save_silver_table no fim do notebook) - NOT NULL
 por natureza, então a constraint PRIMARY KEY no Unity Catalog é aplicada com
 sucesso (além do COMMENT ON TABLE sempre gravado).
 
-CONVENÇÃO DE NOME/CASE DE COLUNA: prefixo semântico já usado no projeto
-(Id_/Nme_/Desc_/Cod_/Dt_/Qtd_/Num_/Url_) + primeira letra maiúscula, resto
-minúsculo, sem acento - todas as colunas 100% PT-BR a partir da Silver
-(pedido do usuário; Bronze/Ingestion continuam passthrough 1:1 da fonte).
+CONVENÇÃO DE NOME/CASE DE COLUNA (pedido do usuário): nome de coluna 100%
+MAIÚSCULO (prefixo semântico já usado no projeto - ID_/NME_/DESC_/COD_/DT_/
+QTD_/NUM_/URL_ - + resto do nome, ex.: NME_CARTA). Valor de atributo (colunas
+de nome/categoria) em Title_Case por palavra, sem acento, espaço virando "_"
+(ex.: "mana vermelha" -> "Mana_Vermelha") - ver normalizar_valor() em
+silver_utils.py. Exceção: ID_/COD_/URL_* e texto livre longo (regras/
+legalidades/nomes estrangeiros serializados) mantêm sua própria convenção de
+case - ver colunas específicas abaixo. Bronze/Ingestion continuam passthrough
+1:1 da fonte.
 
 USO DE SILVER_UTILS.PY:
 - Centralização de funções comuns
@@ -45,20 +50,20 @@ ESTÁGIO 0 (PADRONIZAÇÃO DE NOMES) - AUD-20 (#135) / #115:
   (via CARDS_SCHEMA da Ingestion) que toda coluna renomeada sempre existe, o
   bloco de fallback foi removido - ele resolvia um schema-drift que o
   contrato da Ingestion já impede, e escondia esse bug em vez de proteger
-  contra ele. Único fallback condicional mantido: Id_oracle (oracle_id é
+  contra ele. Único fallback condicional mantido: ID_ORACLE (oracle_id é
   novo - #135 - pode faltar em partição gravada antes da mudança).
 
 SEPARAÇÃO DE PREÇO E MIGRAÇÃO (#115): até esta revisão, esta tabela também
-carregava o histórico diário de preço (junção por Nme_carta com a Bronze
+carregava o histórico diário de preço (junção por NME_CARTA com a Bronze
 card_prices) e o id canônico pós-migração da Scryfall (Bronze migrations),
-o que forçava a chave única a incluir Dt_ingestao_preco (coluna que podia
+o que forçava a chave única a incluir DT_INGESTAO_PRECO (coluna que podia
 ser NULA) e degradava a constraint PRIMARY KEY pra comentário best-effort.
 Preço e migração têm grão e cadência de atualização próprios - viraram
 tabelas Silver dedicadas (TB_FATO_PRECOS_CARTAS, TB_MOV_MIGRACOES_CARTAS),
 e esta tabela voltou a ter grão só de "impressão de carta", chave simples
-(Id_carta) e sem essas duas fontes na extração. Consumidores Gold que
+(ID_CARTA) e sem essas duas fontes na extração. Consumidores Gold que
 precisam de preço ou do id canônico pós-migração devem juntar essas tabelas
-por Nme_carta / Id_carta, respectivamente.
+por NME_CARTA / ID_CARTA, respectivamente.
 
 REGRA "SEM ( ) { } NO DADO SILVER" (pedido do usuário):
 - Texto de carta/custo de mana/legalidades vêm da Scryfall com notação de
@@ -124,51 +129,51 @@ def transform_cards_silver(df):
     # pipeline; todas as outras colunas vêm do CARDS_SCHEMA da Ingestion e
     # sempre existem (valor pode ser NULL, a coluna nunca falta).
     if "oracle_id" in df.columns:
-        oracle_id_select = "oracle_id AS Id_oracle"
+        oracle_id_select = "oracle_id AS ID_ORACLE"
     else:
-        logger.warning("Coluna oracle_id ausente na Bronze cards - Id_oracle ficará NULL (ver #135).")
-        oracle_id_select = "CAST(NULL AS STRING) AS Id_oracle"
+        logger.warning("Coluna oracle_id ausente na Bronze cards - ID_ORACLE ficará NULL (ver #135).")
+        oracle_id_select = "CAST(NULL AS STRING) AS ID_ORACLE"
 
     spark.sql(f"""
         CREATE OR REPLACE TEMP VIEW _cards_stage0 AS
         SELECT
-            id AS Id_carta,
+            id AS ID_CARTA,
             {oracle_id_select},
-            name AS Nme_carta,
-            manaCost AS Desc_custo_mana,
-            cmc AS Qtd_custo_mana,
-            colors AS Cod_cores,
-            colorIdentity AS Cod_identidade_cor,
-            type AS Nme_tipo_carta,
-            types AS Desc_tipos,
-            subtypes AS Desc_subtipos,
-            rarity AS Nme_raridade,
-            `set` AS Cod_colecao,
-            setName AS Nme_colecao,
-            text AS Desc_carta,
-            artist AS Nme_artista,
-            number AS Num_colecionador,
-            power AS Nme_forca,
-            toughness AS Nme_resistencia,
-            layout AS Nme_disposicao_carta,
-            multiverseid AS Id_multiverso,
-            imageUrl AS Url_imagem,
-            variations AS Cod_variacoes,
-            foreignNames AS Desc_nomes_estrangeiros,
-            printings AS Desc_impressoes,
-            originalText AS Desc_carta_original,
-            originalType AS Nme_tipo_original,
-            legalities AS Desc_legalidades,
-            ingestion_timestamp AS Dt_ingestao,
-            source AS Nme_fonte,
-            endpoint AS Desc_url_origem,
-            source_file AS Desc_arquivo_origem,
-            bronze_run_id AS Id_execucao_bronze,
-            bronze_ingestion_timestamp AS Dt_ingestao_bronze
+            name AS NME_CARTA,
+            manaCost AS DESC_CUSTO_MANA,
+            cmc AS QTD_CUSTO_MANA,
+            colors AS COD_CORES,
+            colorIdentity AS COD_IDENTIDADE_COR,
+            type AS NME_TIPO_CARTA,
+            types AS DESC_TIPOS,
+            subtypes AS DESC_SUBTIPOS,
+            rarity AS NME_RARIDADE,
+            `set` AS COD_COLECAO,
+            setName AS NME_COLECAO,
+            text AS DESC_CARTA,
+            artist AS NME_ARTISTA,
+            number AS NUM_COLECIONADOR,
+            power AS NME_FORCA,
+            toughness AS NME_RESISTENCIA,
+            layout AS NME_DISPOSICAO_CARTA,
+            multiverseid AS ID_MULTIVERSO,
+            imageUrl AS URL_IMAGEM,
+            variations AS COD_VARIACOES,
+            foreignNames AS DESC_NOMES_ESTRANGEIROS,
+            printings AS DESC_IMPRESSOES,
+            originalText AS DESC_CARTA_ORIGINAL,
+            originalType AS NME_TIPO_ORIGINAL,
+            legalities AS DESC_LEGALIDADES,
+            ingestion_timestamp AS DT_INGESTAO,
+            source AS NME_FONTE,
+            endpoint AS DESC_URL_ORIGEM,
+            source_file AS DESC_ARQUIVO_ORIGEM,
+            bronze_run_id AS ID_EXECUCAO_BRONZE,
+            bronze_ingestion_timestamp AS DT_INGESTAO_BRONZE
         FROM _cards_bronze
     """)
 
-    # Estágio 1: filtro temporal (últimos 5 anos). Dt_ingestao sempre existe
+    # Estágio 1: filtro temporal (últimos 5 anos). DT_INGESTAO sempre existe
     # (coluna técnica obrigatória da Bronze) - sem fallback aqui: um NULL
     # nela zeraria silenciosamente o filtro (WHERE NULL >= ...) e descartaria
     # o lote inteiro sem erro, pior que um crash.
@@ -176,7 +181,7 @@ def transform_cards_silver(df):
         CREATE OR REPLACE TEMP VIEW _cards_stage1 AS
         SELECT *
         FROM _cards_stage0
-        WHERE Dt_ingestao >= add_months(current_date(), -60)
+        WHERE DT_INGESTAO >= add_months(current_date(), -60)
     """)
 
     # Estágio 2: limpeza/derivação de negócio. \\[ \\] no literal SQL: Spark
@@ -187,55 +192,59 @@ def transform_cards_silver(df):
     spark.sql(r"""
         CREATE OR REPLACE TEMP VIEW _cards_stage2 AS
         SELECT
-            * EXCEPT (Nme_carta, Nme_artista, Nme_raridade, Nme_colecao, Desc_carta,
-                      Desc_custo_mana, Qtd_custo_mana, Nme_forca, Nme_resistencia,
-                      Cod_colecao, Desc_impressoes, Cod_variacoes, Cod_cores,
-                      Cod_identidade_cor, Desc_subtipos, Desc_tipos, Nme_tipo_carta,
-                      Dt_ingestao),
+            * EXCEPT (NME_CARTA, NME_ARTISTA, NME_RARIDADE, NME_COLECAO, DESC_CARTA,
+                      DESC_CUSTO_MANA, QTD_CUSTO_MANA, NME_FORCA, NME_RESISTENCIA,
+                      COD_COLECAO, DESC_IMPRESSOES, COD_VARIACOES, COD_CORES,
+                      COD_IDENTIDADE_COR, DESC_SUBTIPOS, DESC_TIPOS, NME_TIPO_CARTA,
+                      NME_TIPO_ORIGINAL, DT_INGESTAO),
 
-            initcap(trim(Nme_carta)) AS Nme_carta,
-            initcap(trim(Nme_artista)) AS Nme_artista,
-            initcap(trim(Nme_raridade)) AS Nme_raridade,
-            initcap(trim(Nme_colecao)) AS Nme_colecao,
-            CASE WHEN Desc_carta IS NULL OR Desc_carta = '' THEN 'NA' ELSE trim(Desc_carta) END AS Desc_carta,
-            CASE WHEN Desc_custo_mana IS NULL OR Desc_custo_mana = '' THEN 'NA' ELSE trim(Desc_custo_mana) END AS Desc_custo_mana,
-            coalesce(Qtd_custo_mana, 0) AS Qtd_custo_mana,
-            -- Nme_forca/Nme_resistencia são STRING na Bronze e podem legitimamente
+            normalizar_valor(NME_CARTA) AS NME_CARTA,
+            normalizar_valor(NME_ARTISTA) AS NME_ARTISTA,
+            normalizar_valor(NME_RARIDADE) AS NME_RARIDADE,
+            normalizar_valor(NME_COLECAO) AS NME_COLECAO,
+            CASE WHEN DESC_CARTA IS NULL OR DESC_CARTA = '' THEN 'NA' ELSE trim(DESC_CARTA) END AS DESC_CARTA,
+            CASE WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = '' THEN 'NA' ELSE trim(DESC_CUSTO_MANA) END AS DESC_CUSTO_MANA,
+            coalesce(QTD_CUSTO_MANA, 0) AS QTD_CUSTO_MANA,
+            -- NME_FORCA/NME_RESISTENCIA são STRING na Bronze e podem legitimamente
             -- valer "*", "1+*" etc. (poder/resistência variável - ex.: Tarmogoyf).
             -- Fallback como string ('0'), não int: coalesce(STRING_COL, 0) força
             -- um implicit cast pra BIGINT, que quebra (CAST_INVALID_INPUT) no
-            -- primeiro valor não-numérico.
-            coalesce(Nme_forca, '0') AS Nme_forca,
-            coalesce(Nme_resistencia, '0') AS Nme_resistencia,
-            upper(Cod_colecao) AS Cod_colecao,
-            regexp_replace(Desc_impressoes, '\\[|\\]|"', '') AS Desc_impressoes,
-            regexp_replace(Cod_variacoes, '\\[|\\]|"', '') AS Cod_variacoes,
-            regexp_replace(Cod_cores, '\\[|\\]|"', '') AS Cod_cores,
-            regexp_replace(Cod_identidade_cor, '\\[|\\]|"', '') AS Cod_identidade_cor,
-            regexp_replace(Desc_subtipos, '\\[|\\]|"', '') AS Desc_subtipos,
-            CASE WHEN Desc_tipos IS NULL OR Desc_tipos = '' THEN 'NA' ELSE Desc_tipos END AS Desc_tipos,
+            -- primeiro valor não-numérico. normalizar_valor() é inofensivo aqui
+            -- (sem espaço/acento pra tratar) - mantido só por consistência do
+            -- prefixo NME_.
+            normalizar_valor(coalesce(NME_FORCA, '0')) AS NME_FORCA,
+            normalizar_valor(coalesce(NME_RESISTENCIA, '0')) AS NME_RESISTENCIA,
+            upper(COD_COLECAO) AS COD_COLECAO,  -- normaliza case: TB_DIM_COLECOES tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
+            regexp_replace(DESC_IMPRESSOES, '\\[|\\]|"', '') AS DESC_IMPRESSOES,
+            regexp_replace(COD_VARIACOES, '\\[|\\]|"', '') AS COD_VARIACOES,
+            regexp_replace(COD_CORES, '\\[|\\]|"', '') AS COD_CORES,
+            regexp_replace(COD_IDENTIDADE_COR, '\\[|\\]|"', '') AS COD_IDENTIDADE_COR,
+            normalizar_valor(regexp_replace(DESC_SUBTIPOS, '\\[|\\]|"', '')) AS DESC_SUBTIPOS,
+            CASE WHEN DESC_TIPOS IS NULL OR DESC_TIPOS = '' THEN 'NA' ELSE normalizar_valor(DESC_TIPOS) END AS DESC_TIPOS,
 
-            -- Nme_tipo_carta / Desc_detalhe_tipo_carta: Planeswalker é tipo
+            -- NME_TIPO_CARTA / DESC_DETALHE_TIPO_CARTA: Planeswalker é tipo
             -- isolado; "—" (em dash) separa tipo principal de subtipo
             -- descritivo. As duas colunas saem da mesma origem.
+            normalizar_valor(CASE
+                WHEN NME_TIPO_CARTA IS NULL THEN NULL
+                WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN 'Planeswalker'
+                WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN trim(split(NME_TIPO_CARTA, '—', 2)[0])
+                ELSE trim(NME_TIPO_CARTA)
+            END) AS NME_TIPO_CARTA,
             CASE
-                WHEN Nme_tipo_carta IS NULL THEN NULL
-                WHEN lower(Nme_tipo_carta) LIKE '%planeswalker%' THEN 'Planeswalker'
-                WHEN instr(Nme_tipo_carta, '—') > 0 THEN trim(split(Nme_tipo_carta, '—', 2)[0])
-                ELSE trim(Nme_tipo_carta)
-            END AS Nme_tipo_carta,
-            CASE
-                WHEN Nme_tipo_carta IS NULL THEN NULL
-                WHEN lower(Nme_tipo_carta) LIKE '%planeswalker%' THEN Nme_tipo_carta
-                WHEN instr(Nme_tipo_carta, '—') > 0 THEN trim(split(Nme_tipo_carta, '—', 2)[1])
+                WHEN NME_TIPO_CARTA IS NULL THEN NULL
+                WHEN lower(NME_TIPO_CARTA) LIKE '%planeswalker%' THEN normalizar_valor(NME_TIPO_CARTA)
+                WHEN instr(NME_TIPO_CARTA, '—') > 0 THEN normalizar_valor(trim(split(NME_TIPO_CARTA, '—', 2)[1]))
                 ELSE 'NA'
-            END AS Desc_detalhe_tipo_carta,
+            END AS DESC_DETALHE_TIPO_CARTA,
 
-            to_timestamp(Dt_ingestao) AS Dt_ingestao
+            normalizar_valor(NME_TIPO_ORIGINAL) AS NME_TIPO_ORIGINAL,
+
+            to_timestamp(DT_INGESTAO) AS DT_INGESTAO
         FROM _cards_stage1
     """)
 
-    # Estágio 3: Cod_cores/Desc_subtipos colorless-default (pós-limpeza) e
+    # Estágio 3: COD_CORES/DESC_SUBTIPOS colorless-default (pós-limpeza) e
     # eliminação de "(" ")" "{" "}" do dado Silver (pedido do usuário - esses
     # caracteres sinalizam dado ainda não transformado). \\{ \\} \\( \\) no
     # literal SQL pelo mesmo motivo do Estágio 2 (Spark desfaz backslash
@@ -243,13 +252,13 @@ def transform_cards_silver(df):
     spark.sql(r"""
         CREATE OR REPLACE TEMP VIEW _cards_stage3 AS
         SELECT
-            * EXCEPT (Cod_cores, Desc_subtipos, Desc_carta, Desc_custo_mana,
-                      Desc_carta_original, Desc_legalidades, Desc_nomes_estrangeiros),
+            * EXCEPT (COD_CORES, DESC_SUBTIPOS, DESC_CARTA, DESC_CUSTO_MANA,
+                      DESC_CARTA_ORIGINAL, DESC_LEGALIDADES, DESC_NOMES_ESTRANGEIROS),
 
-            CASE WHEN Cod_cores IS NULL OR Cod_cores = '' THEN 'Colorless' ELSE Cod_cores END AS Cod_cores,
-            CASE WHEN Desc_subtipos IS NULL OR Desc_subtipos = '' THEN 'NA' ELSE Desc_subtipos END AS Desc_subtipos,
+            CASE WHEN COD_CORES IS NULL OR COD_CORES = '' THEN 'Colorless' ELSE COD_CORES END AS COD_CORES,
+            CASE WHEN DESC_SUBTIPOS IS NULL OR DESC_SUBTIPOS = '' THEN 'NA' ELSE DESC_SUBTIPOS END AS DESC_SUBTIPOS,
 
-            -- Desc_carta: substituições nomeadas pros símbolos de mana mais
+            -- DESC_CARTA: substituições nomeadas pros símbolos de mana mais
             -- comuns (mais legível que colchete genérico), seguidas de dois
             -- catch-alls genéricos: qualquer "{...}" restante (custo
             -- numérico, mana híbrida {W/U}, phyrexiana {W/P}, loyalty
@@ -268,7 +277,7 @@ def transform_cards_silver(df):
             regexp_replace(
             regexp_replace(
             regexp_replace(
-            regexp_replace(Desc_carta, '\\{W\\}', '[White]'),
+            regexp_replace(DESC_CARTA, '\\{W\\}', '[White]'),
                                 '\\{U\\}', '[Blue]'),
                                 '\\{B\\}', '[Black]'),
                                 '\\{R\\}', '[Red]'),
@@ -280,53 +289,53 @@ def transform_cards_silver(df):
                                 '\\{S\\}', '[Snow]'),
                                 '\\{E\\}', '[Energy]'),
                                 '\\{([^}]*)\\}', '[$1]'),
-                                '\\(([^)]*)\\)', '[$1]') AS Desc_carta,
+                                '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA,
 
-            -- Desc_custo_mana: notação puramente simbólica (ex.: "{2}{U}{U}") -
+            -- DESC_CUSTO_MANA: notação puramente simbólica (ex.: "{2}{U}{U}") -
             -- só o catch-all genérico já resolve, sem precisar da lista nomeada.
             regexp_replace(
-            regexp_replace(Desc_custo_mana, '\\{([^}]*)\\}', '[$1]'),
-                                             '\\(([^)]*)\\)', '[$1]') AS Desc_custo_mana,
+            regexp_replace(DESC_CUSTO_MANA, '\\{([^}]*)\\}', '[$1]'),
+                                             '\\(([^)]*)\\)', '[$1]') AS DESC_CUSTO_MANA,
 
-            -- Desc_carta_original: texto pré-errata, mesma notação de Desc_carta.
+            -- DESC_CARTA_ORIGINAL: texto pré-errata, mesma notação de DESC_CARTA.
             regexp_replace(
-            regexp_replace(Desc_carta_original, '\\{([^}]*)\\}', '[$1]'),
-                                                  '\\(([^)]*)\\)', '[$1]') AS Desc_carta_original,
+            regexp_replace(DESC_CARTA_ORIGINAL, '\\{([^}]*)\\}', '[$1]'),
+                                                  '\\(([^)]*)\\)', '[$1]') AS DESC_CARTA_ORIGINAL,
 
-            -- Desc_legalidades: dict serializado (json.dumps) vindo direto da
+            -- DESC_LEGALIDADES: dict serializado (json.dumps) vindo direto da
             -- Bronze - chaves de dict viram colchete pela mesma regra.
             regexp_replace(
-            regexp_replace(Desc_legalidades, '\\{([^}]*)\\}', '[$1]'),
-                                              '\\(([^)]*)\\)', '[$1]') AS Desc_legalidades,
+            regexp_replace(DESC_LEGALIDADES, '\\{([^}]*)\\}', '[$1]'),
+                                              '\\(([^)]*)\\)', '[$1]') AS DESC_LEGALIDADES,
 
-            -- Desc_nomes_estrangeiros: lista de dicts serializada (um dict por
+            -- DESC_NOMES_ESTRANGEIROS: lista de dicts serializada (um dict por
             -- idioma, sem aninhamento) - mesma regra.
             regexp_replace(
-            regexp_replace(Desc_nomes_estrangeiros, '\\{([^}]*)\\}', '[$1]'),
-                                                      '\\(([^)]*)\\)', '[$1]') AS Desc_nomes_estrangeiros
+            regexp_replace(DESC_NOMES_ESTRANGEIROS, '\\{([^}]*)\\}', '[$1]'),
+                                                      '\\(([^)]*)\\)', '[$1]') AS DESC_NOMES_ESTRANGEIROS
         FROM _cards_stage2
     """)
 
-    # Estágio 4: Nme_categoria_cor/Qtd_cores (derivados de Cod_cores e
-    # Desc_custo_mana já resolvidos nos estágios anteriores) e
-    # Ano_ingestao/Mes_ingestao (partição física, derivados de Dt_ingestao -
-    # #115, no lugar de Ano/Mes_ingestao_preco removidos com attach_prices).
+    # Estágio 4: NME_CATEGORIA_COR/QTD_CORES (derivados de COD_CORES e
+    # DESC_CUSTO_MANA já resolvidos nos estágios anteriores) e
+    # ANO_INGESTAO/MES_INGESTAO (partição física, derivados de DT_INGESTAO -
+    # #115, no lugar de ANO/MES_INGESTAO_PRECO removidos com attach_prices).
     df_silver = spark.sql("""
         SELECT
             *,
-            CASE
-                WHEN Cod_cores = 'Colorless' THEN 'Colorless'
-                WHEN size(split(Cod_cores, ',')) = 1 THEN 'Mono'
-                WHEN size(split(Cod_cores, ',')) = 2 THEN 'Dual Color'
-                WHEN size(split(Cod_cores, ',')) >= 3 THEN 'Multicolor'
+            normalizar_valor(CASE
+                WHEN COD_CORES = 'Colorless' THEN 'Colorless'
+                WHEN size(split(COD_CORES, ',')) = 1 THEN 'Mono'
+                WHEN size(split(COD_CORES, ',')) = 2 THEN 'Dual Color'
+                WHEN size(split(COD_CORES, ',')) >= 3 THEN 'Multicolor'
                 ELSE 'Mono'
-            END AS Nme_categoria_cor,
+            END) AS NME_CATEGORIA_COR,
             CASE
-                WHEN Desc_custo_mana IS NULL OR Desc_custo_mana = 'NA' THEN 0
-                ELSE length(regexp_replace(upper(Desc_custo_mana), '[^WUBRG]', ''))
-            END AS Qtd_cores,
-            year(Dt_ingestao) AS Ano_ingestao,
-            month(Dt_ingestao) AS Mes_ingestao
+                WHEN DESC_CUSTO_MANA IS NULL OR DESC_CUSTO_MANA = 'NA' THEN 0
+                ELSE length(regexp_replace(upper(DESC_CUSTO_MANA), '[^WUBRG]', ''))
+            END AS QTD_CORES,
+            year(DT_INGESTAO) AS ANO_INGESTAO,
+            month(DT_INGESTAO) AS MES_INGESTAO
         FROM _cards_stage3
     """)
 
@@ -356,19 +365,19 @@ processor = SilverTableProcessor("TB_FATO_CARTAS", config)
 df_cards_bronze = processor.extract_from_bronze("cards")
 df_silver = processor.transform_data(df_cards_bronze, transform_cards_silver)
 
-# Salvar na Silver com particionamento e merge incremental por Id_carta - #115:
-# chave voltou a ser só Id_carta (identificador único por impressão) desde
+# Salvar na Silver com particionamento e merge incremental por ID_CARTA - #115:
+# chave voltou a ser só ID_CARTA (identificador único por impressão) desde
 # que preço e migração saíram desta tabela (ver docstring da célula
-# anterior). partition_cols por Ano_ingestao/Mes_ingestao (data de coleta do
+# anterior). partition_cols por ANO_INGESTAO/MES_INGESTAO (data de coleta do
 # dado de carta, não mais de preço).
-# order_by_col=Dt_ingestao: se o lote tiver mais de uma linha para a mesma
+# order_by_col=DT_INGESTAO: se o lote tiver mais de uma linha para a mesma
 # chave (reprocessamento), mantém a linha da ingestão mais recente em vez de
 # uma linha arbitrária (AUD-09).
 processor.save_silver_table(
     df_silver,
-    partition_cols=["Ano_ingestao", "Mes_ingestao"],
-    key_column="Id_carta",
-    order_by_col="Dt_ingestao",
+    partition_cols=["ANO_INGESTAO", "MES_INGESTAO"],
+    key_column="ID_CARTA",
+    order_by_col="DT_INGESTAO",
     table_comment=get_table_comment("TB_FATO_CARTAS"),
     column_comments=get_column_comments("TB_FATO_CARTAS")
 )
