@@ -39,15 +39,12 @@ from pyspark.sql.functions import current_timestamp, input_file_name, lit
 def list_stage_files(dbutils, s3_stage_path, stage_table_name):
     """Lista os arquivos Parquet da Stage pertencentes a stage_table_name.
 
-    Os 6 arquivos das tabelas de Stage vivem juntos, no mesmo diretório flat
-    (S3_STAGE_PATH), distinguidos só pelo sufixo do nome do arquivo
-    (ver save_to_parquet em ingestion_utils.py) - por isso o filtro é por
-    sufixo exato, não um glob solto que poderia casar "cards" dentro de
-    "card_prices".
+    Cada tabela de Stage tem sua própria pasta em S3_STAGE_PATH/{stage_table_name}/
+    (ver save_to_parquet em ingestion_utils.py).
     """
-    suffix = f"_{stage_table_name}.parquet"
-    all_files = dbutils.fs.ls(s3_stage_path)
-    return sorted(f.path for f in all_files if f.name.endswith(suffix))
+    table_path = f"{s3_stage_path}/{stage_table_name}"
+    all_files = dbutils.fs.ls(table_path)
+    return sorted(f.path for f in all_files if f.name.endswith(".parquet"))
 
 
 def normalize_path(path):
