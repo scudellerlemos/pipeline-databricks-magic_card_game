@@ -5,17 +5,19 @@
 
 
 class FakeSpark:
-    """Records every spark.sql() call; answers the combined NULL-count SELECT from a
-    canned {column: null_count} map, everything else is a no-op DDL call."""
+    """Records every spark.sql() call; answers the combined NULL-count + dup-count
+    SELECT from a canned {column: null_count, "__dup_count": n} map, everything
+    else is a no-op DDL call."""
 
-    def __init__(self, null_counts=None):
-        self.null_counts = null_counts or {}
+    def __init__(self, null_counts=None, dup_count=0):
+        self.row = dict(null_counts or {})
+        self.row["__dup_count"] = dup_count
         self.calls = []
 
     def sql(self, query):
         self.calls.append(query)
         if "sum(case when" in query:
-            return _FakeResult(self.null_counts)
+            return _FakeResult(self.row)
         return _FakeResult(None)
 
 
@@ -31,16 +33,28 @@ def declare_primary_key(spark, full_table_name, table_name, key_cols):
     """Mirror of silver_utils._declare_primary_key."""
     pk_name = f"pk_{table_name.lower()}"
 
-    sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
-    null_counts = spark.sql(f"SELECT {sums} FROM {full_table_name}").collect()[0]
+    null_sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
+    key_concat = "concat_ws('', " + ", ".join(f"cast(`{k}` as string)" for k in key_cols) + ")"
+    dup_count_expr = f"count(*) - count(distinct {key_concat}) as __dup_count"
+    row = spark.sql(f"SELECT {null_sums}, {dup_count_expr} FROM {full_table_name}").collect()[0]
+
     for k in key_cols:
-        null_count = null_counts.get(k) or 0
+        null_count = row.get(k) or 0
         if null_count > 0:
             raise RuntimeError(
                 f"Coluna chave '{k}' de {full_table_name} tem {null_count} linha(s) "
                 f"com valor NULO - viola a premissa de chave única desta tabela. "
                 f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
             )
+
+    dup_count = row.get("__dup_count") or 0
+    if dup_count > 0:
+        raise RuntimeError(
+            f"Chave ({', '.join(key_cols)}) de {full_table_name} tem {dup_count} "
+            f"linha(s) duplicada(s) - viola a premissa de chave única desta "
+            f"tabela (Unity Catalog não enforca unicidade de PRIMARY KEY). "
+            f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
+        )
 
     for k in key_cols:
         spark.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
@@ -104,9 +118,32 @@ def test_composite_key_second_column_null_stops_before_any_ddl():
     assert len(spark.calls) == 1
 
 
+def test_duplicate_key_raises_with_exact_count_and_skips_constraint():
+    spark = FakeSpark(null_counts={"Cod_colecao": 0}, dup_count=2)
+    try:
+        declare_primary_key(spark, "cat.silver.TB_DIM_COLECOES", "TB_DIM_COLECOES", ["Cod_colecao"])
+        assert False, "esperava RuntimeError"
+    except RuntimeError as e:
+        assert "2 linha(s) duplicada(s)" in str(e)
+        assert "Cod_colecao" in str(e)
+    # a checagem de NULO passa, mas a de duplicidade já bloqueia antes de qualquer DDL.
+    assert len(spark.calls) == 1
+
+
+def test_dup_count_expr_uses_distinct_key_concat_in_the_same_scan():
+    spark = FakeSpark(null_counts={"Cod_colecao": 0}, dup_count=0)
+    declare_primary_key(spark, "cat.silver.TB_DIM_COLECOES", "TB_DIM_COLECOES", ["Cod_colecao"])
+    # NULO e duplicidade saem da mesma query combinada (1 scan), não de 2 queries.
+    assert len(spark.calls) == 4
+    assert "count(distinct concat_ws(" in spark.calls[0]
+    assert "__dup_count" in spark.calls[0]
+
+
 if __name__ == "__main__":
     test_null_key_raises_with_exact_count_and_skips_constraint()
     test_no_null_declares_constraint_in_order()
     test_composite_key_checks_all_columns_in_a_single_scan()
     test_composite_key_second_column_null_stops_before_any_ddl()
+    test_duplicate_key_raises_with_exact_count_and_skips_constraint()
+    test_dup_count_expr_uses_distinct_key_concat_in_the_same_scan()
     print("OK")

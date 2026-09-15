@@ -109,9 +109,20 @@ def extract_from_bronze(catalog, table_name_bronze):
 
 # ============================================================================
 # DOCUMENTAÇÃO NO UNITY CATALOG (mesmo padrão de bronze_utils.py)
+#
+# Duplicada de propósito em vez de extraída pra base_utils.py: função definida
+# num arquivo %run'd não fica visível como variável livre dentro de uma função
+# definida em OUTRO arquivo %run'd, mesmo com ambos mesclados no mesmo
+# notebook (achado real em Databricks, mesma causa do %run isolation citado
+# no topo deste arquivo) - extrair quebraria a chamada em runtime com
+# NameError. apply_table_documentation só pode viver junto de quem a chama.
 # ============================================================================
 def _escape_sql_string(value):
-    return value.replace("'", "''")
+    # Spark SQL não trata '' (dobrar aspas, convenção ANSI) como aspas literal
+    # dentro de um single-quoted string - fecha a string na 1a aspa e abre
+    # outra logo em seguida, virando ParseException. Backslash é o que o
+    # parser aceita (achado real ao rodar Bronze no Databricks).
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 def apply_table_documentation(spark, full_table_name, table_comment=None, column_comments=None):
@@ -140,30 +151,46 @@ def _declare_primary_key(spark_session, full_table_name, table_name, key_cols):
     """Declara a PRIMARY KEY de key_cols em full_table_name no Unity Catalog.
 
     Unity Catalog exige que toda coluna da PK esteja NOT NULL antes de aceitar
-    a constraint. Em vez de só tentar o ALTER COLUMN ... SET NOT NULL e reagir
-    ao erro genérico do engine, um único SELECT soma as linhas NULAS de cada
-    coluna de chave de uma vez (1 scan da tabela pra N colunas, em vez de N) -
-    quando há violação, a mensagem já vem com a contagem exata de linhas
-    quebrando a premissa de chave única, sem depender do texto de erro do
-    Unity Catalog pra isso. Isso não é um erro pra só avisar e seguir: propaga
-    a exceção e derruba a run, pra alguém corrigir a fonte/transformação antes
-    da tabela ficar sem PK documentada silenciosamente.
+    a constraint, mas NÃO enforca unicidade (PRIMARY KEY lá é informativa) -
+    então em vez de só tentar o ALTER COLUMN ... SET NOT NULL e reagir ao erro
+    genérico do engine, um único SELECT soma as linhas NULAS de cada coluna de
+    chave E conta linhas duplicadas pela chave completa de uma vez (1 scan da
+    tabela pra N colunas + duplicidade, em vez de N+1) - quando há violação, a
+    mensagem já vem com a contagem exata de linhas quebrando a premissa de
+    chave única, sem depender do texto de erro do Unity Catalog pra isso. Isso
+    não é um erro pra só avisar e seguir: propaga a exceção e derruba a run,
+    pra alguém corrigir a fonte/transformação antes da tabela ficar sem PK
+    documentada silenciosamente.
 
     DROP+ADD constraint em vez de só ADD: idempotente entre execuções (ADD
     CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
     """
     pk_name = f"pk_{table_name.lower()}"
 
-    sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
-    null_counts = spark_session.sql(f"SELECT {sums} FROM {full_table_name}").collect()[0]
+    null_sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
+    key_concat = "concat_ws('', " + ", ".join(f"cast(`{k}` as string)" for k in key_cols) + ")"
+    dup_count_expr = f"count(*) - count(distinct {key_concat}) as __dup_count"
+    row = spark_session.sql(
+        f"SELECT {null_sums}, {dup_count_expr} FROM {full_table_name}"
+    ).collect()[0]
+
     for k in key_cols:
-        null_count = null_counts[k] or 0
+        null_count = row[k] or 0
         if null_count > 0:
             raise RuntimeError(
                 f"Coluna chave '{k}' de {full_table_name} tem {null_count} linha(s) "
                 f"com valor NULO - viola a premissa de chave única desta tabela. "
                 f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
             )
+
+    dup_count = row["__dup_count"] or 0
+    if dup_count > 0:
+        raise RuntimeError(
+            f"Chave ({', '.join(key_cols)}) de {full_table_name} tem {dup_count} "
+            f"linha(s) duplicada(s) - viola a premissa de chave única desta "
+            f"tabela (Unity Catalog não enforca unicidade de PRIMARY KEY). "
+            f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
+        )
 
     for k in key_cols:
         spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
