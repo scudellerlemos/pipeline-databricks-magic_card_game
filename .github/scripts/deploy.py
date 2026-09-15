@@ -126,7 +126,7 @@ def validate_databricks_connection():
 
         return True, is_new_cli
     except subprocess.CalledProcessError as e:
-        log(f"❌ Erro na conexão com Databricks: {e.stderr}", "ERROR")
+        log(f"❌ Erro na conexão com Databricks (exit {e.returncode}): stdout={e.stdout!r} stderr={e.stderr!r}", "ERROR")
         return False, False
     except Exception as e:
         log(f"❌ Erro inesperado na validação: {e}", "ERROR")
