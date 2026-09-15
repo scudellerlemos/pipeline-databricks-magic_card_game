@@ -158,7 +158,11 @@ def ensure_unity_catalog_table(spark, full_table_name, delta_path, table_comment
 
 
 def _escape_sql_string(value):
-    return value.replace("'", "''")
+    # ponytail: testado ao vivo - Spark SQL nao trata '' (dobrar aspas, padrao
+    # ANSI) como aspas literal dentro de um single-quoted string; ele fecha a
+    # string na primeira aspa e abre outra logo em seguida, gerando dois
+    # literais adjacentes = ParseException. Backslash e o que o parser aceita.
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 def apply_table_documentation(spark, full_table_name, table_comment=None, column_comments=None):
