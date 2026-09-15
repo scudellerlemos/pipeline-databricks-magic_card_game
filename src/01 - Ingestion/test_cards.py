@@ -1,7 +1,7 @@
-# ponytail: same approach as test_card_prices.py - the notebook cell isn't an
-# importable module on its own, so load the "FUNÇÕES ESPECÍFICAS" cell's
-# source straight out of the .py notebook and exec it with a fake `requests`
-# (bulk-data index + gzipped jsonl payload, or /sets).
+# ponytail: mesma abordagem de test_card_prices.py - a célula do notebook não
+# é um módulo importável por si só, então carrega o código-fonte da célula
+# "FUNÇÕES ESPECÍFICAS" direto do notebook .py e executa com um `requests`
+# fake (índice de bulk-data + payload jsonl gzipado, ou /sets).
 
 import gzip
 import json

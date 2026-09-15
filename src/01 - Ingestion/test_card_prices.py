@@ -1,9 +1,10 @@
-# ponytail: fetch_price_records/_to_price_record live inside the notebook's
-# "FUNÇÕES ESPECÍFICAS" cell (not an importable module on its own), so this
-# loads that cell's source straight out of the .py notebook and execs it with
-# a fake `requests` (bulk-data index + gzipped jsonl payload) - same
-# "exercise the real code" spirit as test_base_utils_get_secret.py, just for
-# a notebook cell instead of a .py module.
+# ponytail: fetch_price_records/_to_price_record vivem dentro da célula
+# "FUNÇÕES ESPECÍFICAS" do notebook (não é um módulo importável por si só),
+# então isto carrega o código-fonte da célula direto do notebook .py e
+# executa com um `requests` fake (índice de bulk-data + payload jsonl
+# gzipado) - mesmo espírito de "exercitar o código real" de
+# test_base_utils_get_secret.py, só que pra uma célula de notebook em vez de
+# um módulo .py.
 
 import gzip
 import json
