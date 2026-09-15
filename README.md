@@ -54,18 +54,21 @@ pipeline-databricks-magic_card_game/
 │   ├── 📁 01 - Ingestion/          # 🚀 Ingestão de dados da Scryfall API (Stage)
 │   │   ├── cards.ipynb             # Cartas
 │   │   ├── sets.ipynb              # Sets/Expansões
-│   │   ├── card_prices.ipynb       # Preços das cartas (idempotência mensal)
+│   │   ├── card_prices.ipynb       # Preços das cartas
+│   │   ├── symbology.ipynb         # Símbolos de mana/custo
+│   │   ├── rulings.ipynb           # Esclarecimentos de regras
+│   │   ├── migrations.ipynb        # Reconciliação de IDs Scryfall
 │   │   └── ingestion_utils.py      # HTTP retry, S3, controle de execução
 │   │
 │   ├── 📁 02 - Bronze/             # 🥉 Camada Bronze (Raw)
 │   │   ├── 📁 Dev/
-│   │   │   ├── TB_BRONZE_CARDS.ipynb
-│   │   │   ├── TB_BRONZE_SETS.ipynb
-│   │   │   ├── TB_BRONZE_FORMATS.ipynb
-│   │   │   ├── TB_BRONZE_TYPES.ipynb
-│   │   │   ├── TB_BRONZE_SUBTYPES.ipynb
-│   │   │   ├── TB_BRONZE_SUPERTYPES.ipynb
-│   │   │   └── TB_BRONZE_CARDPRICES.ipynb
+│   │   │   ├── cards.ipynb
+│   │   │   ├── sets.ipynb
+│   │   │   ├── card_prices.ipynb
+│   │   │   ├── symbology.ipynb
+│   │   │   ├── rulings.ipynb
+│   │   │   ├── migrations.ipynb
+│   │   │   └── bronze_utils.py     # EL compartilhado (append + Unity Catalog)
 │   │   └── 📁 Documentação/
 │   │
 │   ├── 📁 03 - Silver/             # 🥈 Camada Silver (Cleaned)
@@ -113,9 +116,11 @@ pipeline-databricks-magic_card_game/
 - **Resiliência**: retry com backoff em erros HTTP transitórios (429/5xx)
 
 ### **2. Bronze Layer**
-- **Função**: Armazenamento raw dos dados
-- **Partitioning**: Adequado para performance
-- **Preservação**: Tipos de dados originais
+- **Função**: EL puro (Extract & Load) - lê o Parquet da Stage e grava Delta append-only, sem regra de negócio
+- **Dados**: 6 tabelas (`cards`, `sets`, `card_prices`, `symbology`, `rulings`, `migrations`), uma por origem da Stage
+- **Particionamento**: Nenhum (volume atual não justifica)
+- **Preservação**: Schema de origem 1:1, sem dedup nem MERGE/upsert
+- **Documentação de negócio**: [`src/02 - Bronze/Documentação/`](<src/02 - Bronze/Documentação/README.md>) (tabela e coluna, comentado também no Unity Catalog)
 
 ### **3. Silver Layer**
 - **Função**: Limpeza e padronização
@@ -160,15 +165,18 @@ pipeline-databricks-magic_card_game/
 
 ### **Scryfall API**
 - **URL**: `https://api.scryfall.com`
-- **Dados**: Cartas, Sets, Preços de mercado (USD, EUR, TIX)
-- **Características**: API pública, sem necessidade de chave; bulk-data cobre cartas/preços em um único download, sem paginação manual
+- **Dados**: Cartas, Sets, Preços de mercado (USD, EUR, TIX), Símbolos de mana, Rulings, Migrações de ID
+- **Características**: API pública, sem necessidade de chave; bulk-data cobre cartas/preços/rulings em um único download, sem paginação manual
 - **Rate Limiting**: requisições sequenciais com retry/backoff (`http_get_with_retry`) em 429/5xx
 
 
 ### **Entidades Principais**
 - 🃏 **Cartas**: catálogo completo via bulk-data
 - 📦 **Sets**: Todas as expansões
-- 💰 **Preços**: Histórico de preços (snapshots mensais)
+- 💰 **Preços**: Histórico de preços (uma linha por coleta, sem dedup)
+- 🔣 **Symbology**: Catálogo de símbolos de mana/custo
+- 📜 **Rulings**: Esclarecimentos oficiais de regras por carta
+- 🔀 **Migrations**: Histórico de reconciliação de IDs de carta
 
 ### **Métricas Calculadas**
 - 📈 **ROI**: Retorno sobre investimento

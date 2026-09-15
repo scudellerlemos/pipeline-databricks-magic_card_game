@@ -51,20 +51,18 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 
 **Processo**: **EL (Extract & Load)**
 - **Extract**: Leitura de dados Parquet da staging (S3)
-- **Load**: Carregamento incremental no Unity Catalog
-- **Dados**: 3 tabelas principais (Cards, Sets, CardPrices)
+- **Load**: Append-only no Unity Catalog (sem MERGE/upsert), idempotente por `source_file`
+- **Dados**: 6 tabelas, uma por origem da Stage (`cards`, `sets`, `card_prices`, `symbology`, `rulings`, `migrations`)
 
 **Características**:
-- ✅ Dados brutos preservados
-- ✅ Merge incremental por chaves específicas
-- ✅ Particionamento temporal
-- ✅ Governança via Unity Catalog
+- ✅ Dados brutos preservados 1:1 (schema de origem, sem renomeação)
+- ✅ Append-only, sem dedup por chave de negócio - histórico completo preservado
+- ✅ Sem particionamento (volume atual não justifica)
+- ✅ Governança via Unity Catalog (tabela e coluna comentadas - ver [`Documentação/`](<02 - Bronze/Documentação/README.md>))
 - ✅ Histórico completo via Delta Lake
 
-**Tabelas**:
-- 🃏 **TB_BRONZE_CARDS** - Cartas com 25+ campos
-- 📦 **TB_BRONZE_SETS** - Expansões e coleções
-- 💰 **TB_BRONZE_CARDPRICES** - Preços em tempo real
+**Tabelas**: `cards`, `sets`, `card_prices`, `symbology`, `rulings`, `migrations` -
+sem prefixo `TB_BRONZE_`, já que vivem no schema `bronze` do Unity Catalog.
 
 ### 🥈 **Camada Silver** - Dados Limpos
 **Localização**: `src/03 - Silver/`
@@ -127,10 +125,15 @@ finish_run(base_path, "cards", run_id, status="SUCCESS", ...)
 
 ### **2. Bronze (02 - Bronze)**
 ```python
-# Carregamento da staging
-df_staging = spark.read.parquet("s3://bucket/staging/cards.parquet")
-# Merge incremental na Bronze
-load_to_bronze_unity_merge(df_staging, "TB_BRONZE_CARDS")
+# EL puro: lê só os arquivos novos da Stage e faz append no Delta,
+# sem regra de negócio - ver Dev/bronze_utils.py
+run_bronze_ingestion(
+    spark, dbutils, catalog_name, schema_name="bronze",
+    bronze_table_name="cards", stage_table_name="cards",
+    s3_stage_path=..., s3_bronze_path=...,
+    table_comment=get_table_comment("cards"),
+    column_comments=get_column_comments("cards"),
+)
 ```
 
 ### **3. Silver (03 - Silver)**
