@@ -1,3 +1,4 @@
+# Databricks notebook source
 # ============================================================================
 # BRONZE COLUMN DOCS - comentários de tabela/coluna pro Unity Catalog
 # ============================================================================

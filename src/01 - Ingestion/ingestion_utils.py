@@ -1,3 +1,4 @@
+# Databricks notebook source
 # ============================================================================
 # INGESTION UTILS - Funções compartilhadas pelos notebooks de Ingestão (Stage)
 # ============================================================================

@@ -1,3 +1,4 @@
+# Databricks notebook source
 # ============================================================================
 # BRONZE UTILS - Funções compartilhadas pelos notebooks de Bronze
 # ============================================================================
