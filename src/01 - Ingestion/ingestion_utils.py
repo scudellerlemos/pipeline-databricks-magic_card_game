@@ -174,8 +174,10 @@ def save_to_parquet(spark, data, table_name, base_path, schema=None,
 
             # Nome inclui o dia da execução: antes só tinha ano/mês, então a partir do
             # 2o run do mesmo mês o "arquivo já existe" pulava o dia inteiro (AUD-04).
+            # Cada tabela tem sua própria pasta em base_path/{table_name}/ - antes os
+            # arquivos de todas as tabelas viviam juntos num diretório flat.
             file_name = f"{partition_year}_{partition_month:02d}_{run_date_str}_{table_name}.parquet"
-            file_path = f"{base_path}/{file_name}"
+            file_path = f"{base_path}/{table_name}/{file_name}"
 
             try:
                 existing_files = dbutils.fs.ls(file_path)

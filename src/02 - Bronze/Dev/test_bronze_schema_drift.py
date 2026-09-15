@@ -88,6 +88,17 @@ def test_schema_diff_first_load_is_all_new():
     assert result["missing"] == []
 
 
+def stage_table_path(s3_stage_path, stage_table_name):
+    """Mirrors list_stage_files' table_path: each Stage table now has its
+    own subfolder instead of a shared flat directory filtered by suffix."""
+    return f"{s3_stage_path}/{stage_table_name}"
+
+
+def test_stage_table_path_is_per_table_subfolder():
+    assert stage_table_path("s3://b/stage", "cards") == "s3://b/stage/cards"
+    assert stage_table_path("s3://b/stage", "card_prices") == "s3://b/stage/card_prices"
+
+
 if __name__ == "__main__":
     test_no_new_files_when_everything_already_loaded()
     test_only_unseen_files_are_new()
@@ -96,4 +107,5 @@ if __name__ == "__main__":
     test_schema_diff_detects_new_and_missing_columns()
     test_schema_diff_detects_type_change()
     test_schema_diff_first_load_is_all_new()
+    test_stage_table_path_is_per_table_subfolder()
     print("OK")

@@ -103,12 +103,18 @@ max_retries           # Tentativas de retry por request HTTP (padrão: 3)
 
 ```
 s3://{bucket}/{stage_prefix}/
-├── {year}_{month}_{day}_cards.parquet   # dia da execução no nome - evita pular o mês
-├── {year}_{month}_{day}_sets.parquet    # inteiro a partir do 2º run do mesmo mês (AUD-04)
-├── {year}_{month}_{day}_card_prices.parquet   # mesma granularidade diária dos outros dois
-├── {year}_{month}_{day}_symbology.parquet     # partição por data de ingestão (sem coluna de data própria)
-├── {year}_{month}_{day}_rulings.parquet       # partição por data de ingestão (sem coluna de data própria)
-├── {year}_{month}_{day}_migrations.parquet    # partição por data de ingestão (sem filtro/coluna de data própria)
+├── cards/
+│   └── {year}_{month}_{day}_cards.parquet   # dia da execução no nome - evita pular o mês
+├── sets/                                    # inteiro a partir do 2º run do mesmo mês (AUD-04)
+│   └── {year}_{month}_{day}_sets.parquet
+├── card_prices/
+│   └── {year}_{month}_{day}_card_prices.parquet   # mesma granularidade diária dos outros dois
+├── symbology/
+│   └── {year}_{month}_{day}_symbology.parquet     # partição por data de ingestão (sem coluna de data própria)
+├── rulings/
+│   └── {year}_{month}_{day}_rulings.parquet       # partição por data de ingestão (sem coluna de data própria)
+├── migrations/
+│   └── {year}_{month}_{day}_migrations.parquet    # partição por data de ingestão (sem filtro/coluna de data própria)
 └── _control/
     ├── cards/{run_id}.json
     ├── sets/{run_id}.json
@@ -117,6 +123,8 @@ s3://{bucket}/{stage_prefix}/
     ├── rulings/{run_id}.json
     └── migrations/{run_id}.json
 ```
+
+Cada tabela tem sua própria pasta - antes os 6 arquivos viviam juntos num diretório flat, distinguidos só pelo sufixo do nome.
 
 ## 🔁 Idempotência e controle de execução
 
