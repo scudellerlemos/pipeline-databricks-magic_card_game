@@ -1,22 +1,22 @@
-# ponytail: fetch_price_records/_to_price_record live inside a notebook cell
-# (not an importable .py), so this loads that cell's source straight out of
-# the .ipynb JSON and execs it with a fake `requests` (bulk-data index +
-# gzipped jsonl payload) - same "exercise the real code" spirit as
-# test_base_utils_get_secret.py, just for a notebook cell instead of a .py
-# module.
+# ponytail: fetch_price_records/_to_price_record live inside the notebook's
+# "FUNÇÕES ESPECÍFICAS" cell (not an importable module on its own), so this
+# loads that cell's source straight out of the .py notebook and execs it with
+# a fake `requests` (bulk-data index + gzipped jsonl payload) - same
+# "exercise the real code" spirit as test_base_utils_get_secret.py, just for
+# a notebook cell instead of a .py module.
 
 import gzip
 import json
 import os
 import sys
 
-_NB_PATH = os.path.join(os.path.dirname(__file__), "card_prices.ipynb")
+_NB_PATH = os.path.join(os.path.dirname(__file__), "card_prices.py")
+_MARKER = "FUNÇÕES ESPECÍFICAS DE CARD_PRICES"
 
 
 def _load_functions(fake_get):
-    with open(_NB_PATH, encoding="utf-8") as f:
-        nb = json.load(f)
-    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: card_prices-specific functions
+    cells = open(_NB_PATH, encoding="utf-8").read().split("# COMMAND ----------")
+    cell_source = next(c for c in cells if _MARKER in c)
 
     ns = {
         "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),

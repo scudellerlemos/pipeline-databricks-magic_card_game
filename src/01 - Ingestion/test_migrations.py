@@ -1,18 +1,19 @@
-# ponytail: same approach as test_sets.py/test_symbology.py - the notebook
-# cell isn't an importable .py, so load its source straight out of the .ipynb
-# JSON and exec it with a fake `requests` (paginated /migrations responses).
+# ponytail: same approach as test_sets.py/test_symbology.py - the notebook's
+# "FUNÇÕES ESPECÍFICAS" cell isn't an importable module on its own, so load
+# its source straight out of the .py notebook and exec it with a fake
+# `requests` (paginated /migrations responses).
 
 import json
 import os
 import sys
 
-_NB_PATH = os.path.join(os.path.dirname(__file__), "migrations.ipynb")
+_NB_PATH = os.path.join(os.path.dirname(__file__), "migrations.py")
+_MARKER = "FUNÇÕES ESPECÍFICAS DE MIGRATIONS"
 
 
 def _load_functions(fake_get):
-    with open(_NB_PATH, encoding="utf-8") as f:
-        nb = json.load(f)
-    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: migrations-specific functions
+    cells = open(_NB_PATH, encoding="utf-8").read().split("# COMMAND ----------")
+    cell_source = next(c for c in cells if _MARKER in c)
 
     ns = {
         "http_get_with_retry": lambda url, headers=None, timeout=30, retries=3: fake_get(url, headers=headers, timeout=timeout),

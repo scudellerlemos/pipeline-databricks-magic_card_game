@@ -54,6 +54,14 @@ def has_notebook_tasks(job):
     return any("notebook_task" in task for task in job["tasks"])
 
 
+def resolve_notebook_file(notebook_path):
+    if notebook_path.endswith(".ipynb"):
+        notebook_path = notebook_path[:-6]
+    if os.path.exists(f"{notebook_path}.py"):
+        return f"{notebook_path}.py"
+    return f"{notebook_path}.ipynb"
+
+
 def validate_notebook_paths(yaml_path, job_key, job):
     missing = []
     for task in job["tasks"]:
@@ -62,7 +70,7 @@ def validate_notebook_paths(yaml_path, job_key, job):
         notebook_path = task["notebook_task"]["notebook_path"]
         if notebook_path.endswith(".ipynb"):
             notebook_path = notebook_path[:-6]
-        if not os.path.exists(f"{notebook_path}.ipynb"):
+        if not (os.path.exists(f"{notebook_path}.ipynb") or os.path.exists(f"{notebook_path}.py")):
             missing.append(f"{notebook_path}.ipynb")
     if missing:
         raise ValueError(f"{yaml_path} ({job_key}): notebooks ausentes: {missing}")
@@ -74,9 +82,16 @@ def validate_notebook_syntax(yaml_path, job_key, job):
         if "notebook_task" not in task:
             continue
         notebook_path = task["notebook_task"]["notebook_path"]
-        if notebook_path.endswith(".ipynb"):
-            notebook_path = notebook_path[:-6]
-        notebook_file = f"{notebook_path}.ipynb"
+        notebook_file = resolve_notebook_file(notebook_path)
+        if notebook_file.endswith(".py"):
+            try:
+                with open(notebook_file, "r", encoding="utf-8") as f:
+                    first_line = f.readline().strip()
+                if first_line != "# Databricks notebook source":
+                    invalid.append(f"{notebook_file} - sem header 'Databricks notebook source'")
+            except Exception as e:
+                invalid.append(f"{notebook_file} - {e}")
+            continue
         try:
             with open(notebook_file, "r", encoding="utf-8") as f:
                 notebook_data = json.load(f)

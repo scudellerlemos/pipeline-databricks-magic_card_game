@@ -1,17 +1,18 @@
-# ponytail: same approach as test_sets.py - the notebook cell isn't an
-# importable .py, so load its source straight out of the .ipynb JSON and exec
-# it with a fake `requests` (single Scryfall /symbology response).
+# ponytail: same approach as test_sets.py - the notebook's "FUNÇÕES
+# ESPECÍFICAS" cell isn't an importable module on its own, so load its
+# source straight out of the .py notebook and exec it with a fake `requests`
+# (single Scryfall /symbology response).
 
 import json
 import os
 import sys
 
-_NB_PATH = os.path.join(os.path.dirname(__file__), "symbology.ipynb")
+_NB_PATH = os.path.join(os.path.dirname(__file__), "symbology.py")
+_MARKER = "FUNÇÕES ESPECÍFICAS DE SYMBOLOGY"
 
 def _load_functions(fake_get):
-    with open(_NB_PATH, encoding="utf-8") as f:
-        nb = json.load(f)
-    cell_source = "".join(nb["cells"][1]["source"])  # cell-1: symbology-specific functions
+    cells = open(_NB_PATH, encoding="utf-8").read().split("# COMMAND ----------")
+    cell_source = next(c for c in cells if _MARKER in c)
 
     ns = {
         "json": json,
