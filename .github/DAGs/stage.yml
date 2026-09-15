@@ -3,6 +3,10 @@ resources:
     MTG_STAGE:
       name: MTG_STAGE
       description: "Camada Stage - ingestao da API Scryfall para S3/Parquet"
+      # Sem depends_on entre as tasks: rodavam em 3 pares so pra throttling de
+      # concorrencia (o cluster de 1 worker fixo deu OOM com as 6 em paralelo).
+      # Com autoscale no cluster (ver job_clusters abaixo) as 6 rodam direto em
+      # paralelo, sem dependencia de dado entre elas.
       tasks:
         - task_key: stage_precos
           notebook_task:
@@ -11,8 +15,6 @@ resources:
           job_cluster_key: Job_cluster
 
         - task_key: stage_cartas
-          depends_on:
-            - task_key: stage_precos
           notebook_task:
             notebook_path: src/01 - Ingestion/cards
             source: GIT
@@ -25,8 +27,6 @@ resources:
           job_cluster_key: Job_cluster
 
         - task_key: stage_colecao
-          depends_on:
-            - task_key: stage_regras
           notebook_task:
             notebook_path: src/01 - Ingestion/sets
             source: GIT
@@ -39,8 +39,6 @@ resources:
           job_cluster_key: Job_cluster
 
         - task_key: stage_migracoes
-          depends_on:
-            - task_key: stage_simbologia
           notebook_task:
             notebook_path: src/01 - Ingestion/migrations
             source: GIT
@@ -51,7 +49,16 @@ resources:
           new_cluster:
             spark_version: "14.3.x-scala2.12"
             node_type_id: "m5d.large"
-            num_workers: 1
+            # Autoscale em vez de num_workers fixo e do depends_on em pares
+            # que existia so pra throttling. 3 tasks em paralelo already
+            # rodavam ok num worker so (foi so com as 6 juntas que deu OOM) -
+            # 1->2 workers da a mesma folga proporcional pras 6 rodando direto,
+            # mantendo o custo de 1 worker fora do pico. A confirmar no teste
+            # de amanha; se ainda estourar memoria, subir max_workers antes de
+            # voltar a depender de depends_on manual.
+            autoscale:
+              min_workers: 1
+              max_workers: 2
             aws_attributes:
               first_on_demand: 1
               zone_id: "us-west-1a"
