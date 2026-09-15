@@ -22,7 +22,8 @@ só o que a Stage gravou de novo desde a última execução da Bronze.
 import uuid
 from datetime import datetime, timezone
 
-from pyspark.sql.functions import input_file_name, current_timestamp, lit
+from pyspark.sql.functions import current_timestamp, input_file_name, lit
+from pyspark.sql.utils import AnalysisException
 
 # get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
 # chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
@@ -49,6 +50,17 @@ def list_stage_files(dbutils, s3_stage_path, stage_table_name):
     return sorted(f.path for f in all_files if f.name.endswith(suffix))
 
 
+def normalize_path(path):
+    """Remove o esquema de URI (s3://, s3a://) para comparação de identidade.
+
+    dbutils.fs.ls() e input_file_name() podem devolver esquemas diferentes
+    pro mesmo arquivo físico no Databricks (ex.: s3:// vs s3a://) - sem essa
+    normalização, a comparação de idempotência nunca bateria e cada run
+    reprocessaria e duplicaria todo o histórico da Stage silenciosamente.
+    """
+    return path.split("://", 1)[-1]
+
+
 def get_already_loaded_files(spark, delta_path):
     """Arquivos de Stage já carregados nesta tabela Bronze, via source_file.
 
@@ -56,12 +68,17 @@ def get_already_loaded_files(spark, delta_path):
     identificação explícita de arquivo/run exigida para idempotência: cada
     source_file representa 1 execução da Stage já processada, não um registro
     de negócio a ser colapsado.
+
+    Só engole AnalysisException (tabela/path ainda não existe - 1a carga).
+    Qualquer outro erro (permissão, S3 transiente, log de transação
+    corrompido) sobe: tratá-lo como "tabela vazia" faria a run reingerir e
+    duplicar todo o histórico em vez de falhar alto.
     """
     try:
         df = spark.read.format("delta").load(delta_path)
-    except Exception:
+    except AnalysisException:
         return set()
-    return {row.source_file for row in df.select("source_file").distinct().collect()}
+    return {normalize_path(row.source_file) for row in df.select("source_file").distinct().collect()}
 
 
 # ============================================================================
@@ -79,7 +96,7 @@ def log_schema_diff(spark, delta_path, incoming_df):
     """
     try:
         existing_fields = {f.name: str(f.dataType) for f in spark.read.format("delta").load(delta_path).schema.fields}
-    except Exception:
+    except AnalysisException:
         existing_fields = {}
 
     incoming_fields = {f.name: str(f.dataType) for f in incoming_df.schema.fields}
@@ -152,7 +169,7 @@ def start_bronze_run(table_name):
     }
 
 
-def finish_bronze_run(run, s3_bronze_path, status, error=None):
+def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
     import json
     started_at = datetime.fromisoformat(run["started_at"])
     finished_at = datetime.now(timezone.utc)
@@ -200,19 +217,20 @@ def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
     try:
         all_files = list_stage_files(dbutils, s3_stage_path, stage_table_name)
         already_loaded = get_already_loaded_files(spark, delta_path)
-        new_files = [f for f in all_files if f not in already_loaded]
+        new_files = [f for f in all_files if normalize_path(f) not in already_loaded]
         run["files_processed"] = len(new_files)
 
         if not new_files:
             print(f"[{bronze_table_name}] Nenhum arquivo novo da Stage - nada a fazer (idempotente).")
-            finish_bronze_run(run, s3_bronze_path, "SUCCESS")
+            finish_bronze_run(dbutils, run, s3_bronze_path, "SUCCESS")
             return None, run
 
         print(f"[{bronze_table_name}] Arquivos novos da Stage: {len(new_files)}")
         df = spark.read.parquet(*new_files) \
             .withColumn("source_file", input_file_name()) \
             .withColumn("bronze_run_id", lit(run["run_id"])) \
-            .withColumn("bronze_ingestion_timestamp", current_timestamp())
+            .withColumn("bronze_ingestion_timestamp", current_timestamp()) \
+            .cache()
 
         run["records_read"] = df.count()
 
@@ -220,9 +238,9 @@ def run_bronze_ingestion(spark, dbutils, catalog_name, schema_name,
         append_to_bronze(df, delta_path, full_table_name)
 
         run["records_written"] = run["records_read"]
-        finish_bronze_run(run, s3_bronze_path, "SUCCESS")
+        finish_bronze_run(dbutils, run, s3_bronze_path, "SUCCESS")
         return df, run
 
     except Exception as e:
-        finish_bronze_run(run, s3_bronze_path, "FAILED", error=str(e))
+        finish_bronze_run(dbutils, run, s3_bronze_path, "FAILED", error=str(e))
         raise

@@ -18,14 +18,19 @@ Stage) e chama `run_bronze_ingestion(...)`.
 Nomeadas sem prefixo `TB_BRONZE_` - já estão dentro do schema `bronze` no
 Unity Catalog (`{catalog}.bronze.cards`, etc.), o prefixo seria redundante.
 
-| Tabela Bronze | Tabela de origem (Stage) | Notebook | Schema (fonte) |
-|---|---|---|---|
-| `cards` | `cards` | [`cards.ipynb`](../Dev/cards.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) |
-| `sets` | `sets` | [`sets.ipynb`](../Dev/sets.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) |
-| `card_prices` | `card_prices` | [`card_prices.ipynb`](../Dev/card_prices.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) |
-| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) |
-| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) |
-| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) |
+| Tabela Bronze | Tabela de origem (Stage) | Notebook | Schema (fonte) | Detalhes |
+|---|---|---|---|---|
+| `cards` | `cards` | [`cards.ipynb`](../Dev/cards.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) | [`cards/README.md`](./cards/README.md) |
+| `sets` | `sets` | [`sets.ipynb`](../Dev/sets.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) | [`sets/README.md`](./sets/README.md) |
+| `card_prices` | `card_prices` | [`card_prices.ipynb`](../Dev/card_prices.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) | [`card_prices/README.md`](./card_prices/README.md) |
+| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) | - |
+| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) | - |
+| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) | - |
+
+`cards`/`sets`/`card_prices` têm um `README.md` próprio porque carregam uma
+nota específica (ex.: relação com preço/set) além do genérico já coberto
+acima; `symbology`/`rulings`/`migrations` não têm nada além do que já está
+documentado aqui, por isso não há página dedicada para elas.
 
 Não há doc de schema por coluna aqui de propósito: a Bronze não altera o
 schema que a Stage produz (ver notebook de origem na tabela acima para a
