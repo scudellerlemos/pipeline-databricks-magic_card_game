@@ -9,8 +9,20 @@
 
 
 def normalize_path(path):
-    """Mirrors bronze_utils.normalize_path: strip URI scheme for comparison."""
-    return path.split("://", 1)[-1]
+    """Mirrors bronze_utils.normalize_path: strip URI scheme and truncate to
+    the ".parquet" directory level (df.write.save() always writes a
+    directory - _metadata.file_path points at a part-file inside it)."""
+    path = path.split("://", 1)[-1]
+    if ".parquet/" in path:
+        path = path.split(".parquet/", 1)[0] + ".parquet"
+    return path
+
+
+def list_stage_files_filter(names):
+    """Mirrors list_stage_files' filter: dbutils.fs.ls names a directory with
+    a trailing "/" (Spark's .save(path) always writes `path` as a directory),
+    so the check must strip it before comparing the ".parquet" suffix."""
+    return [n for n in names if n.rstrip("/").endswith(".parquet")]
 
 
 def find_new_files(all_stage_files, already_loaded_files):
@@ -58,7 +70,7 @@ def test_rerun_same_day_is_noop():
 
 
 def test_scheme_mismatch_does_not_cause_reprocessing():
-    # dbutils.fs.ls() pode devolver s3:// enquanto input_file_name() (já
+    # dbutils.fs.ls() pode devolver s3:// enquanto _metadata.file_path (já
     # normalizado em get_already_loaded_files) devolveu s3a:// pro mesmo
     # arquivo - sem normalize_path, isto reprocessaria e duplicaria histórico.
     all_files = ["s3://b/stage/2026_09_14_cards.parquet"]
@@ -99,6 +111,33 @@ def test_stage_table_path_is_per_table_subfolder():
     assert stage_table_path("s3://b/stage", "card_prices") == "s3://b/stage/card_prices"
 
 
+def test_list_stage_files_filter_matches_directory_entries():
+    # dbutils.fs.ls nomeia diretório com "/" no final - sem rstrip, o filtro
+    # nunca batia e list_stage_files devolvia sempre [] (bug real: toda run
+    # caía no branch idempotente "nada a fazer", mesmo com dado novo).
+    names = ["2026_09_15_cards.parquet/", "_SUCCESS", "2026_09_15_cards.parquet.crc"]
+    assert list_stage_files_filter(names) == ["2026_09_15_cards.parquet/"]
+
+
+def test_normalize_path_truncates_part_file_to_parquet_dir():
+    # _metadata.file_path aponta pro part-file dentro do diretório ".parquet";
+    # list_stage_files devolve o diretório em si - sem truncar, nunca bateriam.
+    part_file = "s3://b/stage/cards/2026_09_15_cards.parquet/part-00000-x.snappy.parquet"
+    directory = "s3://b/stage/cards/2026_09_15_cards.parquet"
+    assert normalize_path(part_file) == normalize_path(directory)
+
+
+def test_already_loaded_part_file_marks_directory_as_not_new():
+    # Reproduz o fluxo real: get_already_loaded_files devolve o part-file
+    # (via _metadata.file_path); list_stage_files devolve o diretório. Depois
+    # da normalização, o mesmo arquivo da Stage não deve ser visto como novo.
+    already_loaded = {normalize_path(
+        "s3a://b/stage/cards/2026_09_15_cards.parquet/part-00000-x.snappy.parquet"
+    )}
+    stage_files = ["s3://b/stage/cards/2026_09_15_cards.parquet"]
+    assert find_new_files(stage_files, already_loaded) == []
+
+
 if __name__ == "__main__":
     test_no_new_files_when_everything_already_loaded()
     test_only_unseen_files_are_new()
@@ -108,4 +147,7 @@ if __name__ == "__main__":
     test_schema_diff_detects_type_change()
     test_schema_diff_first_load_is_all_new()
     test_stage_table_path_is_per_table_subfolder()
+    test_list_stage_files_filter_matches_directory_entries()
+    test_normalize_path_truncates_part_file_to_parquet_dir()
+    test_already_loaded_part_file_marks_directory_as_not_new()
     print("OK")

@@ -38,7 +38,7 @@ lista de campos), só adiciona 3 colunas técnicas por cima:
 
 | Coluna adicionada | Descrição |
 |---|---|
-| `source_file` | Caminho completo do arquivo Parquet de origem na Stage (`input_file_name()`) - é a chave de idempotência: um arquivo só é lido de novo se seu `source_file` ainda não existir na tabela Bronze. |
+| `source_file` | Caminho completo do arquivo Parquet de origem na Stage (`_metadata.file_path`) - é a chave de idempotência: um arquivo só é lido de novo se seu `source_file` ainda não existir na tabela Bronze. |
 | `bronze_run_id` | Id da execução da Bronze que gravou a linha (controle de execução). |
 | `bronze_ingestion_timestamp` | Timestamp em que a Bronze processou o registro (distinto do `ingestion_timestamp` que já vem da Stage no dado de origem). |
 
