@@ -2,8 +2,9 @@
 # BRONZE UTILS - Funções compartilhadas pelos notebooks de Bronze
 # ============================================================================
 """
-Uso no notebook (Databricks):
-    %run ./bronze_utils
+Requer infraestrutura comum (AUD-09) já carregada no notebook via:
+    %run "../../00 - Common/Dev/base_utils"
+Use %run ./bronze_utils para importar no notebook, DEPOIS do %run acima.
 
 Escopo desta camada (Bronze): EL puro (Extract & Load) da Stage (S3/Parquet)
 para Delta, com metadados técnicos de rastreabilidade. Sem regra de negócio,
@@ -23,9 +24,11 @@ from datetime import datetime, timezone
 
 from pyspark.sql.functions import input_file_name, current_timestamp, lit
 
-# %run ../../00 - Common/Dev/base_utils -> get_secret / setup_unity_catalog
-# (mesma infraestrutura já reaproveitada por Silver/Gold - AUD-09)
-%run "../../00 - Common/Dev/base_utils"
+# get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
+# chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
+# Não fazemos %run aninhado aqui: o lint estático de notebooks (AUD-10) só
+# resolve %run um nível, então um %run dentro deste arquivo vira texto Python
+# inválido quando inlined por ele (mesma razão em silver_utils.py/gold_utils.py).
 
 
 # ============================================================================
