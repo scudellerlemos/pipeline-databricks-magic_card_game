@@ -78,7 +78,8 @@ def get_existing_job_id(job_name, is_new_cli=False):
             check=True,
         )
         jobs_data = json.loads(result.stdout)
-        for job in jobs_data.get("jobs", []):
+        jobs_list = jobs_data if isinstance(jobs_data, list) else jobs_data.get("jobs", [])
+        for job in jobs_list:
             if job.get("settings", {}).get("name") == job_name:
                 job_id = job.get("job_id")
                 log(f"✅ Job existente encontrado: {job_name} (ID {job_id})")
@@ -150,9 +151,10 @@ def deploy_one_job(yaml_path, job_key, is_new_cli, job_ids_by_key):
     if existing_id:
         log(f"🔄 Atualizando job existente: {job_key} (ID {existing_id})")
         if is_new_cli:
+            write_json({"job_id": existing_id, "new_settings": job_config})
             result = subprocess.run(
-                ["databricks", "jobs", "reset", str(existing_id)],
-                input=json_content, capture_output=True, text=True, check=True, env=env,
+                ["databricks", "jobs", "reset", "--json", f"@{JSON_TMP}"],
+                capture_output=True, text=True, check=True, env=env,
             )
         else:
             result = subprocess.run(
@@ -164,8 +166,8 @@ def deploy_one_job(yaml_path, job_key, is_new_cli, job_ids_by_key):
         log(f"🆕 Criando novo job: {job_key}")
         if is_new_cli:
             result = subprocess.run(
-                ["databricks", "jobs", "create"],
-                input=json_content, capture_output=True, text=True, check=True, env=env,
+                ["databricks", "jobs", "create", "--json", f"@{JSON_TMP}"],
+                capture_output=True, text=True, check=True, env=env,
             )
         else:
             result = subprocess.run(
@@ -219,7 +221,8 @@ def verify_deployment():
             ["databricks", "jobs", "list", "--output", "JSON"], capture_output=True, text=True, check=True,
         )
         jobs_data = json.loads(result.stdout)
-        names_found = {job.get("settings", {}).get("name") for job in jobs_data.get("jobs", [])}
+        jobs_list = jobs_data if isinstance(jobs_data, list) else jobs_data.get("jobs", [])
+        names_found = {job.get("settings", {}).get("name") for job in jobs_list}
 
         all_ok = True
         for _, job_key in DEPLOY_ORDER:
