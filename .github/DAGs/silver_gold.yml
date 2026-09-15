@@ -51,36 +51,23 @@ resources:
         # ============================================================================
         # GOLD LAYER
         # ============================================================================
-        - task_key: gold_mercado_executivo
-          depends_on:
-            - task_key: silver_cartas
-          notebook_task:
-            notebook_path: src/04 - Gold/Dev/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: gold_metricas_investimentos
-          depends_on:
-            - task_key: silver_cartas
-          notebook_task:
-            notebook_path: src/04 - Gold/Dev/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
-            source: GIT
-          job_cluster_key: Job_cluster
-
-        - task_key: gold_relatorio_executivo
-          depends_on:
-            - task_key: silver_cartas
-          notebook_task:
-            notebook_path: src/04 - Gold/Dev/TB_REPORT_ALERTAS_EXECUTIVOS
-            source: GIT
-          job_cluster_key: Job_cluster
+        # Camada Gold removida pra reconstrução (scripts antigos apontavam pra
+        # colunas em ingles que nao existem mais na Silver pos-renomeacao
+        # DAMA/#115/#116) - tasks gold_* voltam aqui quando os notebooks forem
+        # reescritos contra o schema atual.
 
       job_clusters:
         - job_cluster_key: Job_cluster
           new_cluster:
             spark_version: "14.3.x-scala2.12"
             node_type_id: "m5d.large"
-            num_workers: 1
+            # Autoscale em vez de num_workers fixo - mesmo fix ja validado na
+            # Stage (commit 6fb218c): 1 worker fixo com varias tasks
+            # concorrentes deu OOM la, autoscale absorve o pico sem exigir
+            # depends_on artificial entre tasks sem dependencia de dado real.
+            autoscale:
+              min_workers: 1
+              max_workers: 2
             aws_attributes:
               first_on_demand: 1
               zone_id: "us-west-1a"

@@ -81,12 +81,8 @@ pipeline-databricks-magic_card_game/
 │   │   │   └── TB_REF_SILVER_SUPERTYPES.ipynb
 │   │   └── 📁 Documentação/
 │   │
-│   └── 📁 04 - Gold/               # 🥇 Camada Gold (Analytics)
-│       ├── 📁 Dev/
-│       │   ├── TB_ANALISE_TEMPORAL.ipynb
-│       │   ├── TB_ANALISE_MERCADO_CARTAS_EXECUTIVO.ipynb
-│       │   ├── TB_METRICAS_PERFORMANCE_INVESTIMENTOS.ipynb
-│       │   └── TB_REPORT_ALERTAS_EXECUTIVOS.ipynb
+│   └── 📁 04 - Gold/               # 🥇 Camada Gold (Analytics) - scripts em reconstrução
+│       ├── 📁 Dev/                 # (vazio - notebooks antigos removidos, apontavam pra colunas pré-#115/#116)
 │       └── 📁 Documentação/
 │
 ├── 📁 .github/
@@ -98,7 +94,7 @@ pipeline-databricks-magic_card_game/
 │       ├── stage.yml                # 📋 Job MTG_STAGE
 │       ├── bronze.yml               # 📋 Job MTG_BRONZE
 │       ├── pipeline.yml             # 📋 Job MTG_PIPELINE (orquestrador)
-│       └── magic.yml                # 📋 Job MTG_SILVER_GOLD
+│       └── silver_gold.yml          # 📋 Job MTG_SILVER_GOLD
 │
 └── 📄 README.md                    # 📖 Este arquivo
 ```

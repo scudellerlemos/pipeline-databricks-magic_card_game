@@ -17,7 +17,7 @@ DAG_FILES = [
     (".github/DAGs/stage.yml", "MTG_STAGE"),
     (".github/DAGs/bronze.yml", "MTG_BRONZE"),
     (".github/DAGs/pipeline.yml", "MTG_PIPELINE"),
-    (".github/DAGs/magic.yml", "MTG_SILVER_GOLD"),
+    (".github/DAGs/silver_gold.yml", "MTG_SILVER_GOLD"),
 ]
 
 
