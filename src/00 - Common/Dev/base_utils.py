@@ -1,3 +1,4 @@
+# Databricks notebook source
 # ============================================================================
 # BASE UTILS - Funções compartilhadas entre as camadas Silver e Gold
 # ============================================================================
