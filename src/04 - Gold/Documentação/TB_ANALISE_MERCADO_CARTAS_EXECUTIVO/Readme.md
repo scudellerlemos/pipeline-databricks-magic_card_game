@@ -15,7 +15,7 @@ Tabela Gold contendo análise executiva do mercado de cartas Magic: The Gatherin
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES (camada Silver)
-- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/gold/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
+- **Arquivo de staging:** s3:/<bucket>/mtg_dev/gold/TB_ANALISE_MERCADO_CARTAS_EXECUTIVO
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
@@ -100,7 +100,7 @@ Tabela Gold contendo análise executiva do mercado de cartas Magic: The Gatherin
 
 ## 10. Observações
 - Pipeline modularizado usando gold_utils.py
-- Configuração via Unity Catalog (magic_the_gathering.gold)
+- Configuração via Unity Catalog (mtg_dev.gold)
 - Arredondamento: 2 casas decimais para valores monetários, 4 para percentuais
 - Particionamento otimizado para consultas executivas
 - Categorizações automáticas para análise rápida

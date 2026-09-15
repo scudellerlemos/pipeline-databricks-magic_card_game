@@ -63,7 +63,7 @@ except NameError:
 def get_standard_config():
     """Retorna configuração padrão para scripts Silver com valores padrão seguros"""
     defaults = {
-        'catalog_name': 'magic_the_gathering',
+        'catalog_name': 'mtg_dev',
         's3_bucket': 's3://meu-bucket-default',
         's3_silver_prefix': 'silver'
     }

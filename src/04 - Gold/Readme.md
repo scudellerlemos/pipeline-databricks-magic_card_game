@@ -202,9 +202,9 @@ s3_gold_prefix        # Prefixo da camada gold
 
 # Configuração via módulo
 config = create_manual_config(
-    catalog_name="magic_the_gathering",
+    catalog_name="mtg_dev",
     s3_bucket=get_secret("s3_bucket"),
-    s3_gold_prefix="magic_the_gathering/gold"
+    s3_gold_prefix="mtg_dev/gold"
 )
 
 # Uso do processador modularizado

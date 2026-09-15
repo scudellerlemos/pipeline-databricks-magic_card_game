@@ -133,7 +133,7 @@ Fornecer documentação executiva e técnica de todas as tabelas Gold, permitind
 ### **Dependências**
 - **Fonte**: Tabelas Silver (TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES)
 - **Utilitários**: gold_utils.py (módulo compartilhado)
-- **Configuração**: Unity Catalog (magic_the_gathering.gold)
+- **Configuração**: Unity Catalog (mtg_dev.gold)
 
 ### **Padrões de Implementação**
 - **Modularização**: 1 script por tabela
