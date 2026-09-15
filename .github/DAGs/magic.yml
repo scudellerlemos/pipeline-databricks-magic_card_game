@@ -51,9 +51,17 @@ resources:
         # ============================================================================
         # BRONZE LAYER
         # ============================================================================
+        # Cada task da Bronze depende da Stage inteira (todas as 6 tasks), nao so
+        # da sua irma - a Bronze so comeca quando a camada Stage termina como um
+        # todo. Evita tambem 12 tasks concorrentes no mesmo cluster.
         - task_key: bronze_cartas
           depends_on:
             - task_key: stage_cartas
+            - task_key: stage_colecao
+            - task_key: stage_precos
+            - task_key: stage_simbologia
+            - task_key: stage_regras
+            - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/cards
             source: GIT
@@ -61,7 +69,12 @@ resources:
 
         - task_key: bronze_colecao
           depends_on:
+            - task_key: stage_cartas
             - task_key: stage_colecao
+            - task_key: stage_precos
+            - task_key: stage_simbologia
+            - task_key: stage_regras
+            - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/sets
             source: GIT
@@ -69,7 +82,12 @@ resources:
 
         - task_key: bronze_precos
           depends_on:
+            - task_key: stage_cartas
+            - task_key: stage_colecao
             - task_key: stage_precos
+            - task_key: stage_simbologia
+            - task_key: stage_regras
+            - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/card_prices
             source: GIT
@@ -77,7 +95,12 @@ resources:
 
         - task_key: bronze_simbologia
           depends_on:
+            - task_key: stage_cartas
+            - task_key: stage_colecao
+            - task_key: stage_precos
             - task_key: stage_simbologia
+            - task_key: stage_regras
+            - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/symbology
             source: GIT
@@ -85,7 +108,12 @@ resources:
 
         - task_key: bronze_regras
           depends_on:
+            - task_key: stage_cartas
+            - task_key: stage_colecao
+            - task_key: stage_precos
+            - task_key: stage_simbologia
             - task_key: stage_regras
+            - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/rulings
             source: GIT
@@ -93,6 +121,11 @@ resources:
 
         - task_key: bronze_migracoes
           depends_on:
+            - task_key: stage_cartas
+            - task_key: stage_colecao
+            - task_key: stage_precos
+            - task_key: stage_simbologia
+            - task_key: stage_regras
             - task_key: stage_migracoes
           notebook_task:
             notebook_path: src/02 - Bronze/Dev/migrations
