@@ -19,6 +19,7 @@ arquivo (source_file), não por SELECT DISTINCT nos dados de negócio - reproces
 só o que a Stage gravou de novo desde a última execução da Bronze.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -223,11 +224,19 @@ def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
     run["status"] = status
     run["error"] = error
 
-    # write_control_file vem de base_utils.py (ver docstring no topo do
-    # arquivo - %run "../../00 - Common/Dev/base_utils" precisa já ter
-    # rodado no notebook chamador). Mesma lógica de escrita usada pela Stage
-    # (ingestion_utils.finish_run), só que aquele módulo não faz %run deste.
-    write_control_file(dbutils, run, s3_bronze_path, run["table"])
+    # ponytail: cogitamos extrair isso pra um helper compartilhado em
+    # base_utils.py (mesma lógica existe em ingestion_utils.finish_run/Stage),
+    # mas testado ao vivo (job MTG_BRONZE via Git source) o nome definido por
+    # um %run não fica visível dentro de função de outro arquivo também %run -
+    # NameError em toda run. Mantido self-contained até achar uma forma de
+    # compartilhar que sobreviva a esse comportamento real do %run.
+    control_dir = f"{s3_bronze_path}/_control/{run['table']}"
+    control_path = f"{control_dir}/{run['run_id']}.json"
+    try:
+        dbutils.fs.mkdirs(control_dir)
+        dbutils.fs.put(control_path, json.dumps(run, default=str), overwrite=True)
+    except Exception as e:
+        print(f"Aviso: falha ao gravar controle de execução em {control_path}: {e}")
 
     print(
         f"[{run['table']}] run={run['run_id']} status={status} "
