@@ -22,8 +22,8 @@ só o que a Stage gravou de novo desde a última execução da Bronze.
 import uuid
 from datetime import datetime, timezone
 
+from pyspark.errors import AnalysisException
 from pyspark.sql.functions import current_timestamp, input_file_name, lit
-from pyspark.sql.utils import AnalysisException
 
 # get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
 # chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
