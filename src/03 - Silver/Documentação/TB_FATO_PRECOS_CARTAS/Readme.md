@@ -24,7 +24,7 @@ Histórico de cotações de preço de cartas de Magic: The Gathering em dólar, 
 - **Fluxo:**
   1. Scryfall API
   2. Ingestão para S3 (Stage)
-  3. Processamento Bronze (`TB_BRONZE_CARD_PRICES`)
+  3. Processamento Bronze (`card_prices`)
   4. Transformação Silver (`src/03 - Silver/Dev/TB_FATO_PRECOS_CARTAS.ipynb`)
   5. Escrita na tabela Delta: `TB_FATO_PRECOS_CARTAS` (Unity Catalog)
 

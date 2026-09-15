@@ -22,7 +22,7 @@ Tabela Silver contendo os dados limpos e transformados de conjuntos (sets/ediç�
 - **Fluxo:**
   1. Scryfall API
   2. Ingestão para S3 (Stage)
-  3. Processamento Bronze (`TB_BRONZE_SETS`)
+  3. Processamento Bronze (`sets`)
   4. Transformação Silver (`src/03 - Silver/Dev/TB_DIM_COLECOES.ipynb`)
   5. Escrita na tabela Delta: `TB_DIM_COLECOES` (Unity Catalog)
 

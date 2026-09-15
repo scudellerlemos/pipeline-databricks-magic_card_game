@@ -22,7 +22,7 @@ Histórico de migrações de id de carta feitas pela Scryfall (unificação de d
 - **Fluxo:**
   1. Scryfall API
   2. Ingestão para S3 (Stage)
-  3. Processamento Bronze (`TB_BRONZE_MIGRATIONS`)
+  3. Processamento Bronze (`migrations`)
   4. Transformação Silver (`src/03 - Silver/Dev/TB_MOV_MIGRACOES_CARTAS.ipynb`)
   5. Escrita na tabela Delta: `TB_MOV_MIGRACOES_CARTAS` (Unity Catalog)
 

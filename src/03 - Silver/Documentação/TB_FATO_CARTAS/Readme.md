@@ -24,7 +24,7 @@ Tabela Silver contendo os dados limpos e transformados de cartas do Magic: The G
 - **Fluxo:**
   1. Scryfall API
   2. Ingestão para S3 (Stage)
-  3. Processamento Bronze (`TB_BRONZE_CARDS`)
+  3. Processamento Bronze (`cards`)
   4. Transformação Silver (`src/03 - Silver/Dev/TB_FATO_CARTAS.ipynb`)
   5. Escrita na tabela Delta: `TB_FATO_CARTAS` (Unity Catalog)
 
