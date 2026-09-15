@@ -75,6 +75,30 @@ resources:
             source: GIT
           job_cluster_key: Job_cluster
 
+        - task_key: bronze_simbologia
+          depends_on:
+            - task_key: stage_simbologia
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_SYMBOLOGY
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: bronze_regras
+          depends_on:
+            - task_key: stage_regras
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_RULINGS
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: bronze_migracoes
+          depends_on:
+            - task_key: stage_migracoes
+          notebook_task:
+            notebook_path: src/02 - Bronze/Dev/TB_BRONZE_MIGRATIONS
+            source: GIT
+          job_cluster_key: Job_cluster
+
         # ============================================================================
         # SILVER LAYER
         # ============================================================================
