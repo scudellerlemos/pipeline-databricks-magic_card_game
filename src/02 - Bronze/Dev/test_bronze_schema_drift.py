@@ -2,10 +2,6 @@
 # idempotency (which stage files are "new") and schema-diff logging. Can't
 # import bronze_utils.py directly (pyspark + live dbutils/%run required), so
 # this mirrors just the decision logic in plain Python.
-#
-# Superseded by the Bronze EL rewrite: the old GOV-renaming schema-drift
-# checks this file used to test (TB_BRONZE_{FORMATS,SETS,SUBTYPES,CARDS})
-# no longer exist - Bronze no longer renames columns at all.
 
 
 def normalize_path(path):
@@ -62,8 +58,8 @@ def test_only_unseen_files_are_new():
 
 def test_rerun_same_day_is_noop():
     # 2nd run same day: Stage's save_to_parquet já pulou a escrita de um
-    # arquivo novo (AUD-04, nome do arquivo inclui o dia), então a Bronze
-    # também não vê arquivo novo.
+    # arquivo novo (nome do arquivo inclui o dia), então a Bronze também
+    # não vê arquivo novo.
     all_files = ["s3://b/stage/2026_09_14_cards.parquet"]
     already = {"b/stage/2026_09_14_cards.parquet"}
     assert find_new_files(all_files, already) == []

@@ -6,11 +6,10 @@
 Uso no notebook (Databricks):
     %run ./ingestion_utils
 
-Consolida o boilerplate compartilhado por cards/sets/card_prices (AUD-08) e
-corrige o bug de cadência do save_to_parquet (AUD-04): o nome do arquivo de
-staging inclui o dia da execução, então cada run diário grava seu próprio
-arquivo em vez de "pular" o mês inteiro assim que o primeiro arquivo daquele
-mês existisse.
+Consolida o boilerplate compartilhado por cards/sets/card_prices. Nome do
+arquivo de staging inclui o dia da execução, então cada run diário grava seu
+próprio arquivo em vez de "pular" o mês inteiro assim que o primeiro arquivo
+daquele mês existisse.
 
 Escopo desta camada (Stage): coleta da API Scryfall + validação da ingestão +
 persistência em S3 + controle de execução. Sem CDC (a origem é uma API sem
@@ -110,9 +109,7 @@ def get_scryfall_set_codes_since(scryfall_api_url, headers, cutoff_date_str, ret
     """
     Códigos (lowercase) das coleções lançadas a partir de cutoff_date_str,
     segundo o /sets da Scryfall - 1 request só, devolve o catálogo inteiro
-    (sem paginação, igual ao fetch_all_sets de sets.ipynb). Substitui a antiga
-    get_filtered_set_codes(), que ainda chamava a magicthegathering.io (bug:
-    a migração para Scryfall #121/#123/#127 nunca tinha chegado aqui).
+    (sem paginação, igual ao fetch_all_sets de sets.ipynb).
     """
     response = http_get_with_retry(f"{scryfall_api_url}/sets", headers=headers, retries=retries)
     all_sets = response.json()["data"]
@@ -173,10 +170,9 @@ def save_to_parquet(spark, data, table_name, base_path, schema=None,
                 (col("partition_year") == partition_year) & (col("partition_month") == partition_month)
             )
 
-            # Nome inclui o dia da execução: antes só tinha ano/mês, então a partir do
-            # 2o run do mesmo mês o "arquivo já existe" pulava o dia inteiro (AUD-04).
-            # Cada tabela tem sua própria pasta em base_path/{table_name}/ - antes os
-            # arquivos de todas as tabelas viviam juntos num diretório flat.
+            # Nome inclui o dia da execução para permitir um arquivo por run diário
+            # (senão o check de "arquivo já existe" abaixo pularia o mês inteiro).
+            # Cada tabela grava na sua própria pasta em base_path/{table_name}/.
             file_name = f"{partition_year}_{partition_month:02d}_{run_date_str}_{table_name}.parquet"
             file_path = f"{base_path}/{table_name}/{file_name}"
 

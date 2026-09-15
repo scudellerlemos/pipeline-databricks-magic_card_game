@@ -87,13 +87,9 @@ def transform_symbology_silver(df):
 
     df.createOrReplaceTempView("_symbology_bronze")
 
-    # Uma unica query: renomeia Bronze -> PT-BR, ja converte chave pra
-    # colchete em COD_SIMBOLO (ver docstring do modulo - regra sem excecao,
-    # NUNCA normalizar_valor() aqui) e limpa array serializado em
-    # COD_CORES/DESC_GRAFIAS_GATHERER (mesma regra de TB_FATO_CARTAS).
-    # NME_FONTE/DESC_VARIANTE_LIVRE/DESC_SIMBOLO caem pra 'NA' se
-    # nulo/vazio - Title_Case/sem-acento fica pra normalizar_valores()
-    # depois (pedido do usuario: sem acento complexo dentro do SQL).
+    # Renomeia Bronze -> PT-BR, converte chave pra colchete em COD_SIMBOLO
+    # (regra sem excecao - ver docstring do modulo, NUNCA normalizar_valor()
+    # aqui) e limpa array serializado em COD_CORES/DESC_GRAFIAS_GATHERER.
     df_final = spark.sql(r"""
         SELECT
             regexp_replace(regexp_replace(symbol, '\\{', '['), '\\}', ']') AS COD_SIMBOLO,

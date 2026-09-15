@@ -12,13 +12,10 @@ duas cartas ou remove uma do catalogo, trocando o scryfall_id). Nao e Fato
 (nao ha medida de negocio, so um evento de mudanca de identificador) nem
 Dimensao/DOM (nao descreve uma entidade estavel) - daí o prefixo TB_MOV_.
 
-ORIGEM (AUD-20 / #135, relocado nesta revisao): esta logica de resolucao de
-cadeia de migracao vivia em TB_FATO_CARTAS.ipynb (attach_canonical_id /
-_resolve_id_chain), anexando ID_SCRYFALL_CANONICO direto na tabela de cartas.
-Com a separacao de Fatos por fonte (ver docstring de TB_FATO_PRECOS_CARTAS),
-essa logica passa a viver aqui, na propria tabela de migracoes - Gold junta
-por ID_CARTA_ANTIGO/ID_CARTA_CANONICO quando precisar resolver uma migracao
-no meio de uma janela de analise.
+RESOLUCAO DE MIGRACAO VIVE AQUI, NAO EM TB_FATO_CARTAS (ver docstring de
+TB_FATO_PRECOS_CARTAS sobre a separacao de Fatos por fonte) - Gold junta por
+ID_CARTA_ANTIGO/ID_CARTA_CANONICO quando precisar resolver uma migracao no
+meio de uma janela de analise.
 
 RESOLUCAO EM CADEIA: A mesma migracoes pode encadear (A funde em B, B funde
 em C) - _resolve_id_chain segue a cadeia ate o id final. Puro Python sobre um
@@ -171,12 +168,10 @@ def attach_canonical_id(df_migrations):
     """
     logger = logging.getLogger(__name__)
 
-    # orderBy antes do collect(): sem ordem explicita, collect() nao garante a
-    # mesma ordem de linhas entre runs - se uma carta migrar mais de uma vez
-    # (ID_CARTA_ANTIGO repetido com ID_CARTA_NOVO diferente), o dict abaixo
-    # pegaria um ID_CARTA_NOVO diferente a cada execucao. Ordenando por
-    # DT_EXECUCAO (+ ID_MIGRACAO como desempate estavel), a migracao mais
-    # recente sempre vence de forma deterministica.
+    # orderBy antes do collect(): sem ordem explicita o dict abaixo pegaria um
+    # ID_CARTA_NOVO diferente a cada execucao se uma carta migrar mais de uma
+    # vez. Ordenar por DT_EXECUCAO (+ ID_MIGRACAO como desempate) garante que
+    # a migracao mais recente sempre vence.
     merge_rows = (
         df_migrations
         .filter("NME_ESTRATEGIA_MIGRACAO = 'Unificacao' AND ID_CARTA_NOVO IS NOT NULL")
@@ -232,8 +227,7 @@ processor = SilverTableProcessor("TB_MOV_MIGRACOES_CARTAS", config)
 # Extracao da Bronze (nome real da tabela no catalog, minusculo)
 df_bronze = processor.extract_from_bronze("migrations")
 
-# Aplicar transformacao especifica e resolucao de cadeia (AUD-20 / #135,
-# relocada de TB_FATO_CARTAS.ipynb - ver docstring da celula anterior)
+# Aplicar transformacao especifica e resolucao de cadeia de migracao
 df_silver_stage = processor.transform_data(df_bronze, transform_migrations_silver)
 df_silver = attach_canonical_id(df_silver_stage)
 

@@ -9,8 +9,8 @@ no Unity Catalog) e pelos READMEs de cada tabela em Documentação/ - evita
 descrever a mesma coluna em dois lugares que divergem com o tempo.
 
 Cada notebook de tabela chama get_table_comment(nome)/get_column_comments(nome)
-e repassa pro run_bronze_ingestion. Não faz %run aninhado aqui (AUD-10 só
-resolve %run um nível) - importar via %run ./bronze_column_docs direto no
+e repassa pro run_bronze_ingestion. Não faz %run aninhado aqui (o lint estático
+só resolve %run um nível) - importar via %run ./bronze_column_docs direto no
 notebook, sem dependência de dbutils/spark (é só dado estático).
 """
 
@@ -57,8 +57,7 @@ BRONZE_TABLES = {
             "originalText": "Texto de regras como impresso originalmente (antes de errata).",
             "originalType": "Linha de tipo original antes de reclassificações.",
             "legalities": "Legalidade da carta por formato de jogo.",
-            # issue #135 (AUD-20): capturado a partir desta ingestão - pode
-            # vir NULL em partições gravadas antes da mudança.
+            # Pode vir NULL em partições gravadas antes deste campo existir.
             "oracle_id": "Oracle id da carta na Scryfall - estável entre impressões (printings) da mesma carta, ao contrário de id (que identifica só esta impressão). Usado na Silver para cruzar com migrations.metadata_oracle_id.",
         },
     },

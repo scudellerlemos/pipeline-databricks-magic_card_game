@@ -3,7 +3,7 @@
 # BRONZE UTILS - Funções compartilhadas pelos notebooks de Bronze
 # ============================================================================
 """
-Requer infraestrutura comum (AUD-09) já carregada no notebook via:
+Requer infraestrutura comum já carregada no notebook via:
     %run "../../00 - Common/Dev/base_utils"
 Use %run ./bronze_utils para importar no notebook, DEPOIS do %run acima.
 
@@ -29,8 +29,8 @@ from pyspark.sql.functions import col, current_timestamp, lit
 
 # get_secret / setup_unity_catalog vêm de base_utils.py, que o notebook
 # chamador deve importar via %run ANTES deste arquivo (ver docstring acima).
-# Não fazemos %run aninhado aqui: o lint estático de notebooks (AUD-10) só
-# resolve %run um nível, então um %run dentro deste arquivo vira texto Python
+# Não fazemos %run aninhado aqui: o lint estático de notebooks só resolve
+# %run um nível, então um %run dentro deste arquivo vira texto Python
 # inválido quando inlined por ele (mesma razão em silver_utils.py/gold_utils.py).
 
 
@@ -39,16 +39,13 @@ from pyspark.sql.functions import col, current_timestamp, lit
 # ============================================================================
 
 def list_stage_files(dbutils, s3_stage_path, stage_table_name):
-    """Lista os arquivos Parquet da Stage pertencentes a stage_table_name.
+    """Lista os arquivos Parquet da Stage pertencentes a stage_table_name
+    (pasta própria em S3_STAGE_PATH/{stage_table_name}/, ver save_to_parquet
+    em ingestion_utils.py).
 
-    Cada tabela de Stage tem sua própria pasta em S3_STAGE_PATH/{stage_table_name}/
-    (ver save_to_parquet em ingestion_utils.py).
-
-    df.write.save(path) do Spark sempre grava `path` como um DIRETÓRIO (com os
-    part-files reais dentro) - dbutils.fs.ls devolve o nome desse diretório com
-    "/" no final (ex.: "2026_09_15_cards.parquet/"), então um filtro
-    name.endswith(".parquet") nunca batia e a lista saía sempre vazia (toda run
-    caía no branch idempotente "nada a fazer", mesmo com dado novo na Stage).
+    df.write.save(path) grava `path` como um DIRETÓRIO - dbutils.fs.ls devolve
+    seu nome com "/" no final (ex.: "2026_09_15_cards.parquet/"), daí o
+    rstrip("/") antes do endswith(".parquet").
     """
     table_path = f"{s3_stage_path}/{stage_table_name}"
     all_files = dbutils.fs.ls(table_path)
@@ -57,18 +54,10 @@ def list_stage_files(dbutils, s3_stage_path, stage_table_name):
 
 def normalize_path(path):
     """Remove o esquema de URI e desce ao nível do diretório ".parquet" para
-    comparação de identidade.
-
-    dbutils.fs.ls() e a coluna _metadata.file_path podem devolver esquemas
-    diferentes pro mesmo arquivo físico no Databricks (ex.: s3:// vs s3a://) -
-    sem essa normalização, a comparação de idempotência nunca bateria e cada
-    run reprocessaria e duplicaria todo o histórico da Stage silenciosamente.
-
-    _metadata.file_path aponta pro part-file real DENTRO do diretório
-    ".parquet" (ex.: ".../2026_09_15_cards.parquet/part-00000-xxx.snappy.parquet"),
-    enquanto list_stage_files devolve o diretório em si. Sem truncar no
-    primeiro ".parquet/", as duas nunca bateriam e a Bronze reprocessaria o
-    mesmo diretório da Stage a cada run.
+    comparação de identidade entre list_stage_files (devolve o diretório) e
+    _metadata.file_path (aponta pro part-file dentro dele, ex.:
+    ".../2026_09_15_cards.parquet/part-00000-xxx.snappy.parquet") - sem essa
+    normalização, a comparação de idempotência nunca bateria.
     """
     path = path.split("://", 1)[-1]
     if ".parquet/" in path:
@@ -78,21 +67,13 @@ def normalize_path(path):
 
 def get_already_loaded_files(spark, delta_path):
     """Arquivos de Stage já carregados nesta tabela Bronze, via source_file.
-
     O DISTINCT aqui não é deduplicação de negócio (proibida na Bronze) - é a
-    identificação explícita de arquivo/run exigida para idempotência: cada
-    source_file representa 1 execução da Stage já processada, não um registro
-    de negócio a ser colapsado.
+    identificação de arquivo/run exigida para idempotência.
 
-    Só engole AnalysisException (tabela/path ainda não existe - 1a carga).
-    Qualquer outro erro (permissão, S3 transiente, log de transação
-    corrompido) sobe: tratá-lo como "tabela vazia" faria a run reingerir e
-    duplicar todo o histórico em vez de falhar alto.
-
-    O collect() precisa ficar dentro do try: em Spark Connect, .load() é
-    lazy e não valida o path na hora - o PATH_NOT_FOUND só estoura quando
-    uma action roda (aqui, o collect), então deixar o collect fora do try
-    deixava a exceção escapar sem ser pega mesmo já importando do módulo certo.
+    Só engole AnalysisException (tabela/path ainda não existe - 1a carga);
+    qualquer outro erro sobe, senão a run reingeriria e duplicaria todo o
+    histórico. collect() fica dentro do try porque .load() é lazy em Spark
+    Connect - o PATH_NOT_FOUND só estoura quando essa action roda.
     """
     try:
         df = spark.read.format("delta").load(delta_path)
@@ -229,12 +210,10 @@ def finish_bronze_run(dbutils, run, s3_bronze_path, status, error=None):
     run["status"] = status
     run["error"] = error
 
-    # ponytail: cogitamos extrair isso pra um helper compartilhado em
-    # base_utils.py (mesma lógica existe em ingestion_utils.finish_run/Stage),
-    # mas testado ao vivo (job MTG_BRONZE via Git source) o nome definido por
-    # um %run não fica visível dentro de função de outro arquivo também %run -
-    # NameError em toda run. Mantido self-contained até achar uma forma de
-    # compartilhar que sobreviva a esse comportamento real do %run.
+    # ponytail: duplicado de ingestion_utils.finish_run em vez de compartilhado
+    # via base_utils.py - um nome definido por um %run não fica visível dentro
+    # de função de outro arquivo também %run (NameError). Mantido
+    # self-contained até achar uma forma de compartilhar que sobreviva a isso.
     control_dir = f"{s3_bronze_path}/_control/{run['table']}"
     control_path = f"{control_dir}/{run['run_id']}.json"
     try:

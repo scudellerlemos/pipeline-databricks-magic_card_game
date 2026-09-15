@@ -6,7 +6,7 @@
 Script Python para processamento da tabela TB_DIM_COLECOES.
 Transformação e limpeza de dados da Bronze para Silver.
 
-CLASSIFICAÇÃO DAMA-DMBOK (#116): Dimensão - descreve a entidade de negócio
+CLASSIFICAÇÃO DAMA-DMBOK: Dimensão - descreve a entidade de negócio
 "coleção/edição" (nome, tipo, data de lançamento, bloco...), sem medida
 quantitativa própria além de contagens descritivas (QTD_CARTAS). É
 referenciada por COD_COLECAO a partir de TB_FATO_CARTAS - não é uma lista de
@@ -19,23 +19,16 @@ TB_FATO_CARTAS, aqui a chave é uma única coluna NOT NULL - Unity Catalog
 consegue declarar a constraint PRIMARY KEY de verdade (não só o comentário
 de tabela), ver silver_utils.save_to_silver.
 
-CONVENÇÃO DE NOME/CASE DE COLUNA (pedido do usuário): nome de coluna 100%
-MAIÚSCULO (prefixo semântico + resto, ex.: COD_COLECAO, NME_COLECAO). Valor
-de atributo (colunas de nome/categoria) em Title_Case por palavra, sem
-acento, espaço virando "_" (ex.: "Standard Booster" -> "Standard_Booster") -
-ver normalizar_valor() em silver_utils.py. Exceção: COD_/ID_/URL_* e texto
-livre longo mantêm sua própria convenção de case (ver colunas específicas
-abaixo).
+CONVENÇÃO DE NOME/CASE DE COLUNA: nome de coluna 100% MAIÚSCULO (prefixo
+semântico + resto, ex.: COD_COLECAO, NME_COLECAO). Valor de atributo (colunas
+de nome/categoria) em Title_Case por palavra, sem acento, espaço virando "_"
+(ex.: "Standard Booster" -> "Standard_Booster") - ver normalizar_valor() em
+silver_utils.py. Exceção: COD_/ID_/URL_* e texto livre longo mantêm sua
+própria convenção de case.
 
-CORREÇÃO DE BUGS (achados nesta revisão, escopo #116):
-- Este notebook nunca teve um Estágio 0 de renomeação: a SQL abaixo
-  referenciava direto COD_SET/NME_SET/... contra a Bronze crua, que tem
-  colunas em inglês (code/name/type/releaseDate/onlineOnly...) - nunca
-  rodou com sucesso (UNRESOLVED_COLUMN). O SELECT abaixo agora traduz
-  explicitamente toda coluna da Bronze sets pro nome PT-BR final.
-- processor.extract_from_bronze("TB_BRONZE_SETS") (célula seguinte)
-  referenciava uma tabela que nunca existiu no catalog real - nome correto é
-  "sets" (minúsculo), mesmo padrão já corrigido em TB_FATO_CARTAS (#135).
+O SELECT abaixo traduz explicitamente toda coluna da Bronze sets (em inglês:
+code/name/type/releaseDate/onlineOnly...) pro nome PT-BR final. Extração usa
+"sets" (nome real da tabela no catalog, minúsculo).
 """
 
 # =============================================================================
@@ -97,12 +90,9 @@ def transform_sets_silver(df):
     booster_cols_select = ", ".join(f"booster_{i} AS DESC_BOOSTER_SLOT_{i}" for i in range(20))
 
     # Uma única query: renomeia Bronze -> PT-BR, converte DT_LANCAMENTO e já
-    # deriva ANO_LANCAMENTO/MES_LANCAMENTO na mesma passada (#115:
-    # RELEASE_YEAR/RELEASE_MONTH -> PT-BR). NME_FONTE cai pra 'NA' se
-    # nulo/vazio - sem CASE por coluna, normalizar_valores() abaixo cuida do
-    # sentinela 'NA' junto com o Title_Case/sem-acento de todas as colunas de
-    # nome/categoria de uma vez (pedido do usuário: menos query, sem
-    # complexidade de acento dentro do SQL).
+    # deriva ANO_LANCAMENTO/MES_LANCAMENTO na mesma passada. NME_FONTE cai
+    # pra 'NA' se nulo/vazio - normalizar_valores() abaixo cuida do sentinela
+    # 'NA' junto com o Title_Case/sem-acento das colunas de nome/categoria.
     df_final = spark.sql(f"""
         SELECT
             upper(code) AS COD_COLECAO,  -- normaliza case: TB_FATO_CARTAS tambem faz upper() em COD_COLECAO, join entre as duas depende do mesmo case
