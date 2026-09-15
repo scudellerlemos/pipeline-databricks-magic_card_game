@@ -113,11 +113,11 @@ jobs:
                 # Remove .ipynb extension if present
                 if notebook_path.endswith('.ipynb'):
                     notebook_path = notebook_path[:-6]
-                    
-                # Check if notebook exists
-                if not os.path.exists(f'{notebook_path}.ipynb'):
-                    missing_notebooks.append(f'{notebook_path}.ipynb')
-                    
+
+                # Notebook pode estar em .ipynb (legado) ou .py (Databricks source format)
+                if not os.path.exists(f'{notebook_path}.ipynb') and not os.path.exists(f'{notebook_path}.py'):
+                    missing_notebooks.append(f'{notebook_path}.ipynb|.py')
+
         if missing_notebooks:
             print('❌ Missing notebooks:')
             for notebook in missing_notebooks:
@@ -204,22 +204,34 @@ jobs:
                 notebook_path = task['notebook_task']['notebook_path']
                 if notebook_path.endswith('.ipynb'):
                     notebook_path = notebook_path[:-6]
-                    
-                notebook_file = f'{notebook_path}.ipynb'
+
+                ipynb_file = f'{notebook_path}.ipynb'
+                py_file = f'{notebook_path}.py'
+
+                if os.path.exists(py_file):
+                    # Databricks source format: precisa do header e de pelo
+                    # menos 1 comando (nao ha JSON pra validar aqui)
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                    if first_line != '# Databricks notebook source':
+                        invalid_notebooks.append(f'{py_file} - Missing \"# Databricks notebook source\" header')
+                    continue
+
+                notebook_file = ipynb_file
                 try:
                     with open(notebook_file, 'r') as f:
                         notebook_data = json.load(f)
-                    
+
                     # Check if notebook has cells
                     if 'cells' not in notebook_data:
                         invalid_notebooks.append(f'{notebook_file} - No cells found')
                         continue
-                        
+
                     # Check if notebook has at least one code cell
                     code_cells = [cell for cell in notebook_data['cells'] if cell.get('cell_type') == 'code']
                     if not code_cells:
                         invalid_notebooks.append(f'{notebook_file} - No code cells found')
-                        
+
                 except json.JSONDecodeError:
                     invalid_notebooks.append(f'{notebook_file} - Invalid JSON')
                 except Exception as e:
