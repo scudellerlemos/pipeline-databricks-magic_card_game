@@ -121,7 +121,7 @@ def validate_databricks_connection():
         if is_new_cli:
             subprocess.run(["databricks", "workspace", "list", "/"], capture_output=True, text=True, check=True)
         else:
-            subprocess.run(["databricks", "workspace", "list"], capture_output=True, text=True, check=True)
+            subprocess.run(["databricks", "workspace", "list", "/"], capture_output=True, text=True, check=True)
         log("✅ Conexão com workspace estabelecida")
 
         return True, is_new_cli
