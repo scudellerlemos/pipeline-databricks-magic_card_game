@@ -1,7 +1,8 @@
-# ponytail: pure-logic self-check for _resolve_id_chain() in TB_FATO_CARTAS.ipynb
-# (issue #135 / AUD-20). Can't import the notebook directly (not a .py module, and its
-# other functions need a live Databricks spark session), so this mirrors just the
-# chain-resolution function under test.
+# ponytail: pure-logic self-check for _resolve_id_chain() in TB_MOV_MIGRACOES_CARTAS.ipynb
+# (issue #135 / AUD-20; relocated from TB_FATO_CARTAS.ipynb when price/migration data was
+# split out into their own Silver tables). Can't import the notebook directly (not a .py
+# module, and its other functions need a live Databricks spark session), so this mirrors
+# just the chain-resolution function under test.
 
 
 def _resolve_id_chain(direct_map):

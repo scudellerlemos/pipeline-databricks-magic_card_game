@@ -24,6 +24,30 @@ resources:
             source: GIT
           job_cluster_key: Job_cluster
 
+        - task_key: silver_precos
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_FATO_PRECOS_CARTAS
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: silver_migracoes
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_MOV_MIGRACOES_CARTAS
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: silver_simbolos
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_DOM_SIMBOLOS
+            source: GIT
+          job_cluster_key: Job_cluster
+
+        - task_key: silver_esclarecimentos
+          notebook_task:
+            notebook_path: src/03 - Silver/Dev/TB_FATO_ESCLARECIMENTOS_CARTAS
+            source: GIT
+          job_cluster_key: Job_cluster
+
         # ============================================================================
         # GOLD LAYER
         # ============================================================================

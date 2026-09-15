@@ -108,10 +108,40 @@ def extract_from_bronze(catalog, table_name_bronze):
     return df
 
 # ============================================================================
+# DOCUMENTAÇÃO NO UNITY CATALOG (mesmo padrão de bronze_utils.py)
+# ============================================================================
+def _escape_sql_string(value):
+    return value.replace("'", "''")
+
+
+def apply_table_documentation(spark, full_table_name, table_comment=None, column_comments=None):
+    """Aplica COMMENT ON TABLE / ALTER COLUMN...COMMENT no Unity Catalog.
+
+    Metadados apenas (não reescreve dado) - seguro rodar em toda execução,
+    inclusive numa tabela já existente e comentada, pra manter em sincronia
+    com silver_column_docs.py sem precisar de uma migração separada. Colunas
+    em column_comments que ainda não existem na tabela são silenciosamente
+    ignoradas.
+    """
+    if table_comment:
+        spark.sql(f"COMMENT ON TABLE {full_table_name} IS '{_escape_sql_string(table_comment)}'")
+
+    if column_comments:
+        existing_columns = {f.name for f in spark.table(full_table_name).schema.fields}
+        for column_name, comment in column_comments.items():
+            if column_name in existing_columns:
+                spark.sql(
+                    f"ALTER TABLE {full_table_name} "
+                    f"ALTER COLUMN `{column_name}` COMMENT '{_escape_sql_string(comment)}'"
+                )
+
+
+# ============================================================================
 # FUNÇÃO DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
 def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
-                    partition_cols=None, key_column=None, order_by_col=None):
+                    partition_cols=None, key_column=None, order_by_col=None,
+                    table_comment=None, column_comments=None):
     """
     LOAD: grava df_final na camada Silver (Delta + Unity Catalog).
 
@@ -131,6 +161,10 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
             deterministicamente qual linha sobrevive quando o lote tem mais de uma
             linha para a mesma key_column (AUD-09). Sem ela, duplicatas de chave no
             lote são resolvidas de forma não-determinística, mas ficam logadas.
+        table_comment (str, optional): descrição de negócio da tabela (ver
+            silver_column_docs.py). Combinada com a sinalização de chave única.
+        column_comments (dict, optional): {nome_coluna: descrição de negócio}
+            (ver silver_column_docs.py).
     """
     if not s3_silver_path.startswith("s3://"):
         s3_silver_path = f"s3://{s3_silver_path}"
@@ -207,19 +241,26 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
         f"CREATE TABLE IF NOT EXISTS {full_table_name} USING DELTA LOCATION '{delta_path}'"
     )
 
-    # Sinaliza a chave única DENTRO da tabela (pedido do usuário), pra quem
-    # abre o catalog ver sem precisar ler o notebook. COMMENT ON TABLE sempre
-    # funciona (só metadado); a constraint PRIMARY KEY é tentada best-effort
-    # por cima - Unity Catalog exige colunas NOT NULL numa PK, e algumas
-    # key_column aqui incluem coluna que pode ser NULA por desenho (ex.:
-    # data de ingestão de preço quando a carta não tem preço encontrado), o
-    # que faria a constraint falhar. DROP+ADD em vez de só ADD: idempotente
-    # entre execuções (ADD CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    # Comentário de tabela combina a descrição de negócio (table_comment, ver
+    # silver_column_docs.py) com a sinalização de chave única DENTRO da tabela
+    # (pedido do usuário) - quem abre o catalog vê sem precisar ler o notebook.
+    # apply_table_documentation cobre tabela + colunas (metadado, seguro rodar
+    # toda execução). A constraint PRIMARY KEY é tentada best-effort à parte -
+    # Unity Catalog exige colunas NOT NULL numa PK, e algumas key_column aqui
+    # incluem coluna que pode ser NULA por desenho (ex.: data de ingestão de
+    # preço quando a carta não tem preço encontrado), o que faria a constraint
+    # falhar. DROP+ADD em vez de só ADD: idempotente entre execuções (ADD
+    # CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    final_table_comment = table_comment
+    key_cols = None
     if key_column:
         key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
-        spark_session.sql(
-            f"COMMENT ON TABLE {full_table_name} IS 'Chave única: {', '.join(key_cols)}.'"
-        )
+        key_note = f"Chave única: {', '.join(key_cols)}."
+        final_table_comment = f"{table_comment} {key_note}" if table_comment else key_note
+
+    apply_table_documentation(spark_session, full_table_name, final_table_comment, column_comments)
+
+    if key_cols:
         try:
             pk_name = f"pk_{table_name.lower()}"
             spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
@@ -257,7 +298,8 @@ class SilverTableProcessor:
             return transform_function(df, **kwargs)
         return df
 
-    def save_silver_table(self, df, partition_cols=None, key_column=None, order_by_col=None):
+    def save_silver_table(self, df, partition_cols=None, key_column=None, order_by_col=None,
+                           table_comment=None, column_comments=None):
         """Salva tabela na Silver com configurações padrão"""
         save_to_silver(
             df_final=df,
@@ -267,7 +309,9 @@ class SilverTableProcessor:
             s3_silver_path=self.s3_silver_path,
             partition_cols=partition_cols,
             key_column=key_column,
-            order_by_col=order_by_col
+            order_by_col=order_by_col,
+            table_comment=table_comment,
+            column_comments=column_comments
         )
 
         print(f"✅ {self.table_name} criada com sucesso!")

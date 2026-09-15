@@ -9,20 +9,22 @@
 ## 1. Nome da Tabela e Camada
 - **Tabela:** TB_FATO_CARTAS
 - **Camada:** Silver
-- **Classificação DAMA-DMBOK (#116):** Fato - uma linha por impressão de carta (grão), com medidas quantitativas (Vlr_usd, Vlr_eur, Vlr_tix, Qtd_custo_mana, Qtd_cores) e chave estrangeira implícita para a dimensão de coleção (Cod_colecao -> TB_DIM_COLECOES).
+- **Classificação DAMA-DMBOK (#116):** Fato - uma linha por impressão de carta (grão), com medidas quantitativas (Qtd_custo_mana, Qtd_cores) e chave estrangeira implícita para a dimensão de coleção (Cod_colecao -> TB_DIM_COLECOES). Preço e histórico de migração de id são Fatos/movimento à parte (TB_FATO_PRECOS_CARTAS, TB_MOV_MIGRACOES_CARTAS - ver observação abaixo).
 
 ## 2. Descrição Completa
-Tabela Silver contendo os dados limpos e transformados de cartas do Magic: The Gathering, unificados com o histórico diário de preços e com o id canônico pós-migração da Scryfall, processados a partir da camada Bronze com aplicação de regras de negócio, limpeza de dados e padronização para análises de gameplay, deckbuilding, mercado e estratégias competitivas.
+Tabela Silver contendo os dados limpos e transformados de cartas do Magic: The Gathering, processados a partir da camada Bronze com aplicação de regras de negócio, limpeza de dados e padronização para análises de gameplay, deckbuilding e coleção. Responde "o que é essa carta" - texto de regras, custo de mana, tipo, raridade, artista e em qual coleção ela saiu.
+
+**Separação de preço e migração:** até a revisão de 2026-09-15 (#115/#116), esta tabela também carregava o histórico diário de preço (`Vlr_usd`/`Vlr_eur`/`Vlr_tix`) e o id canônico pós-migração da Scryfall (`Id_scryfall_canonico`), unificados via `attach_prices`/`attach_canonical_id`. Essas duas fontes têm grão diferente do de cartas (preço é por NOME, não por impressão; migração é um evento de mudança de id, não um atributo de carta) e foram separadas em tabelas próprias - ver `TB_FATO_PRECOS_CARTAS` e `TB_MOV_MIGRACOES_CARTAS`. Junte por `Nme_carta`/`Id_carta` quando precisar combinar.
 
 ## 3. Origem dos Dados
-- **Fontes (Bronze):** `cards`, `card_prices`, `migrations`
+- **Fonte (Bronze):** `cards`
 - **Localização:** `<catalog>.silver.TB_FATO_CARTAS` (Unity Catalog / Delta)
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**
   1. Scryfall API
   2. Ingestão para S3 (Stage)
-  3. Processamento Bronze (`TB_BRONZE_CARDS`, `TB_BRONZE_CARD_PRICES`, `TB_BRONZE_MIGRATIONS`)
+  3. Processamento Bronze (`TB_BRONZE_CARDS`)
   4. Transformação Silver (`src/03 - Silver/Dev/TB_FATO_CARTAS.ipynb`)
   5. Escrita na tabela Delta: `TB_FATO_CARTAS` (Unity Catalog)
 
@@ -68,23 +70,16 @@ Todas as colunas a partir da Silver são em PT-BR, sem acento, com a primeira le
 | Dt_ingestao_bronze | timestamp | Timestamp em que a Bronze processou o registro. | Não |
 | Nme_categoria_cor | string | Categoria de cor derivada (Colorless, Mono, Dual Color, Multicolor). | Não |
 | Qtd_cores | int | Quantidade de símbolos de cor (WUBRG) distintos no custo de mana. | Não |
-| Vlr_usd | float | Preço em dólares, sem coalesce (NULO = sem preço encontrado). | Não |
-| Vlr_eur | float | Preço em euros, sem coalesce. | Não |
-| Vlr_tix | float | Preço em MTGO tickets, sem coalesce. | Não |
-| Dt_ingestao_preco | date | Data da coleta de preço usada nesta linha. Pode ser NULO (carta sem preço). | Sim |
-| Ano_ingestao_preco | int | Ano derivado de Dt_ingestao_preco (partição física). | Não |
-| Mes_ingestao_preco | int | Mês derivado de Dt_ingestao_preco (partição física). | Não |
-| Id_scryfall_canonico | string | Id final após resolver a cadeia de merges da Scryfall (migrations). Igual a Id_carta quando não há migração. | Não |
+| Ano_ingestao | int | Ano derivado de Dt_ingestao (partição física). | Não |
+| Mes_ingestao | int | Mês derivado de Dt_ingestao (partição física). | Não |
 
 ## 7. Chave Única
-`Id_carta` + `Dt_ingestao_preco`. `Dt_ingestao_preco` pode ser NULO (carta sem preço encontrado em `attach_prices`), então o Unity Catalog só recebe um `COMMENT ON TABLE` sinalizando a chave; a constraint `PRIMARY KEY` (que exige colunas NOT NULL) é tentada best-effort em `save_to_silver` e degrada silenciosamente para o comentário quando falha (ver `silver_utils.py`).
+`Id_carta`. Coluna NOT NULL por natureza (toda impressão tem id) - a constraint `PRIMARY KEY` no Unity Catalog é aplicada com sucesso (ver `silver_utils.save_to_silver`), além do `COMMENT ON TABLE` sempre gravado.
 
 ## 8. Regras de Implementação
 - **Filtro temporal:** últimos 60 meses de `Dt_ingestao` (Estágio 1).
-- **Junção de preço:** LEFT JOIN com `card_prices` por `lower(trim(Nme_carta))` - uma linha de preço se propaga para todas as impressões do mesmo nome.
-- **Resolução de migração:** cadeia de `old_scryfall_id -> new_scryfall_id` (Bronze `migrations`) resolvida em `Id_scryfall_canonico`, sem reatribuir `Id_carta`.
-- **Merge incremental:** por `Id_carta` + `Dt_ingestao_preco`, desempate por `Dt_ingestao` mais recente.
-- **Particionamento:** por `Ano_ingestao_preco` e `Mes_ingestao_preco`.
+- **Merge incremental:** por `Id_carta`, desempate por `Dt_ingestao` mais recente.
+- **Particionamento:** por `Ano_ingestao` e `Mes_ingestao`.
 - **Regra "sem `( ) { }` no dado Silver":** todo texto livre/estrutura serializada (`Desc_carta`, `Desc_custo_mana`, `Desc_carta_original`, `Desc_legalidades`, `Desc_nomes_estrangeiros`) converte `{...}`/`(...)`  para `[...]` no Estágio 3 - presença de parêntese/chave no dado Silver indica transformação incompleta.
 
 ## 9. Histórico de Alterações
@@ -93,9 +88,10 @@ Todas as colunas a partir da Silver são em PT-BR, sem acento, com a primeira le
 | 2025-07-20 | Felipe | Criação inicial (`TB_FATO_SILVER_CARDS`) |
 | 2026-09-08 | Felipe | AUD-20/AUD-21 (#135/#136): captura de oracle_id, resolução de migração de id, particionamento por data de preço |
 | 2026-09-15 | Felipe | #115/#116: renomeada para TB_FATO_CARTAS (DAMA - Fato), colunas 100% PT-BR/recasadas, correção do bug de fallback sempre-NULL no Estágio 2, eliminação de `(){}` do dado Silver, sinalização de chave única na tabela |
+| 2026-09-15 | Felipe | #115/#116: separação de preço (`TB_FATO_PRECOS_CARTAS`) e migração de id (`TB_MOV_MIGRACOES_CARTAS`) em tabelas próprias - grão volta a ser só `Id_carta`, partição volta a `Ano_ingestao`/`Mes_ingestao` |
 
 ## 10. Observações
 - Pipeline exibe logs detalhados de transformações aplicadas.
-- Merge incremental idempotente por `Id_carta` + `Dt_ingestao_preco`.
-- `Vlr_usd`/`Vlr_eur`/`Vlr_tix` NULO significa "sem preço encontrado", não zero.
-- Consumidores Gold que agrupam/janelam por carta através de uma migração devem usar `Id_scryfall_canonico`, não `Id_carta`.
+- Merge incremental idempotente por `Id_carta`.
+- Preço de mercado agora está em `TB_FATO_PRECOS_CARTAS` (junte por `Nme_carta`).
+- Consumidores Gold que agrupam/janelam por carta através de uma migração de id devem usar `TB_MOV_MIGRACOES_CARTAS.Id_carta_canonico`, não `Id_carta`.
