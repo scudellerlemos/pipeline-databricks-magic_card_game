@@ -136,6 +136,41 @@ def apply_table_documentation(spark, full_table_name, table_comment=None, column
                 )
 
 
+def _declare_primary_key(spark_session, full_table_name, table_name, key_cols):
+    """Declara a PRIMARY KEY de key_cols em full_table_name no Unity Catalog.
+
+    Unity Catalog exige que toda coluna da PK esteja NOT NULL antes de aceitar
+    a constraint. Em vez de só tentar o ALTER COLUMN ... SET NOT NULL e reagir
+    ao erro genérico do engine, faz um COUNT(*) IS NULL por coluna antes -
+    quando há violação, a mensagem já vem com a contagem exata de linhas
+    quebrando a premissa de chave única, sem depender do texto de erro do
+    Unity Catalog pra isso. Isso não é um erro pra só avisar e seguir: propaga
+    a exceção e derruba a run, pra alguém corrigir a fonte/transformação antes
+    da tabela ficar sem PK documentada silenciosamente.
+
+    DROP+ADD constraint em vez de só ADD: idempotente entre execuções (ADD
+    CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    """
+    pk_name = f"pk_{table_name.lower()}"
+    for k in key_cols:
+        null_count = spark_session.sql(
+            f"SELECT count(*) AS n FROM {full_table_name} WHERE `{k}` IS NULL"
+        ).collect()[0]["n"]
+        if null_count > 0:
+            raise RuntimeError(
+                f"Coluna chave '{k}' de {full_table_name} tem {null_count} linha(s) "
+                f"com valor NULO - viola a premissa de chave única desta tabela. "
+                f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
+            )
+        spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
+
+    spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
+    spark_session.sql(
+        f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
+        f"PRIMARY KEY ({', '.join(key_cols)})"
+    )
+
+
 # ============================================================================
 # FUNÇÃO DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
@@ -255,31 +290,8 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
 
     apply_table_documentation(spark_session, full_table_name, final_table_comment, column_comments)
 
-    # PRIMARY KEY: Unity Catalog exige que toda coluna da PK esteja marcada
-    # NOT NULL - então cada key_col precisa de SET NOT NULL primeiro. Se isso
-    # falhar, é porque a coluna tem NULO de verdade na tabela - ou seja, a
-    # premissa "esta coluna é a chave única" está quebrada por um dado real,
-    # não é um erro pra só avisar e seguir: propaga a exceção e derruba a run,
-    # pra alguém corrigir a fonte/transformação antes da tabela ficar sem PK
-    # documentada silenciosamente. DROP+ADD constraint em vez de só ADD:
-    # idempotente entre execuções (ADD CONSTRAINT sem IF NOT EXISTS falharia
-    # na 2ª run).
     if key_cols:
-        pk_name = f"pk_{table_name.lower()}"
-        for k in key_cols:
-            try:
-                spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
-            except Exception as e:
-                raise RuntimeError(
-                    f"Coluna chave '{k}' de {full_table_name} tem valor NULO - "
-                    f"viola a premissa de chave única desta tabela. Corrija a "
-                    f"fonte/transformação antes de declarar PRIMARY KEY."
-                ) from e
-        spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
-        spark_session.sql(
-            f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
-            f"PRIMARY KEY ({', '.join(key_cols)})"
-        )
+        _declare_primary_key(spark_session, full_table_name, table_name, key_cols)
 
     print("Dados salvos com sucesso na camada Silver!")
 
