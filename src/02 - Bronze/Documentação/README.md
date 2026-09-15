@@ -15,14 +15,17 @@ Stage) e chama `run_bronze_ingestion(...)`.
 
 ## Tabelas
 
+Nomeadas sem prefixo `TB_BRONZE_` - já estão dentro do schema `bronze` no
+Unity Catalog (`{catalog}.bronze.cards`, etc.), o prefixo seria redundante.
+
 | Tabela Bronze | Tabela de origem (Stage) | Notebook | Schema (fonte) |
 |---|---|---|---|
-| `TB_BRONZE_CARDS` | `cards` | [`TB_BRONZE_CARDS.ipynb`](../Dev/TB_BRONZE_CARDS.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) |
-| `TB_BRONZE_SETS` | `sets` | [`TB_BRONZE_SETS.ipynb`](../Dev/TB_BRONZE_SETS.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) |
-| `TB_BRONZE_CARDPRICES` | `card_prices` | [`TB_BRONZE_CARDPRICES.ipynb`](../Dev/TB_BRONZE_CARDPRICES.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) |
-| `TB_BRONZE_SYMBOLOGY` | `symbology` | [`TB_BRONZE_SYMBOLOGY.ipynb`](../Dev/TB_BRONZE_SYMBOLOGY.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) |
-| `TB_BRONZE_RULINGS` | `rulings` | [`TB_BRONZE_RULINGS.ipynb`](../Dev/TB_BRONZE_RULINGS.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) |
-| `TB_BRONZE_MIGRATIONS` | `migrations` | [`TB_BRONZE_MIGRATIONS.ipynb`](../Dev/TB_BRONZE_MIGRATIONS.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) |
+| `cards` | `cards` | [`cards.ipynb`](../Dev/cards.ipynb) | [`src/01 - Ingestion/cards.ipynb`](<../../01 - Ingestion/cards.ipynb>) |
+| `sets` | `sets` | [`sets.ipynb`](../Dev/sets.ipynb) | [`src/01 - Ingestion/sets.ipynb`](<../../01 - Ingestion/sets.ipynb>) |
+| `card_prices` | `card_prices` | [`card_prices.ipynb`](../Dev/card_prices.ipynb) | [`src/01 - Ingestion/card_prices.ipynb`](<../../01 - Ingestion/card_prices.ipynb>) |
+| `symbology` | `symbology` | [`symbology.ipynb`](../Dev/symbology.ipynb) | [`src/01 - Ingestion/symbology.ipynb`](<../../01 - Ingestion/symbology.ipynb>) |
+| `rulings` | `rulings` | [`rulings.ipynb`](../Dev/rulings.ipynb) | [`src/01 - Ingestion/rulings.ipynb`](<../../01 - Ingestion/rulings.ipynb>) |
+| `migrations` | `migrations` | [`migrations.ipynb`](../Dev/migrations.ipynb) | [`src/01 - Ingestion/migrations.ipynb`](<../../01 - Ingestion/migrations.ipynb>) |
 
 Não há doc de schema por coluna aqui de propósito: a Bronze não altera o
 schema que a Stage produz (ver notebook de origem na tabela acima para a

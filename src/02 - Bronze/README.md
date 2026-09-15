@@ -13,11 +13,12 @@ schema, particionamento): [`Documentação/README.md`](./Documentação/README.m
 
 ## Tabelas
 
-6 tabelas, uma por origem da Stage: `TB_BRONZE_CARDS`, `TB_BRONZE_SETS`,
-`TB_BRONZE_CARDPRICES`, `TB_BRONZE_SYMBOLOGY`, `TB_BRONZE_RULINGS`,
-`TB_BRONZE_MIGRATIONS`. Cada uma tem um notebook em
-[`Dev/`](./Dev) que só configura os parâmetros da tabela e chama
-`run_bronze_ingestion(...)`, definida em [`Dev/bronze_utils.py`](./Dev/bronze_utils.py).
+6 tabelas, uma por origem da Stage: `cards`, `sets`, `card_prices`,
+`symbology`, `rulings`, `migrations` - sem prefixo `TB_BRONZE_`, já que estão
+dentro do schema `bronze` no Unity Catalog (`{catalog}.bronze.cards`, etc.).
+Cada uma tem um notebook em [`Dev/`](./Dev) (mesmo nome da tabela) que só
+configura os parâmetros e chama `run_bronze_ingestion(...)`, definida em
+[`Dev/bronze_utils.py`](./Dev/bronze_utils.py).
 
 ## Como executar
 
@@ -25,12 +26,12 @@ Cada notebook é independente e idempotente - pode ser reexecutado a
 qualquer momento sem duplicar dados (só processa arquivos novos da Stage):
 
 ```
-TB_BRONZE_CARDS.ipynb
-TB_BRONZE_SETS.ipynb
-TB_BRONZE_CARDPRICES.ipynb
-TB_BRONZE_SYMBOLOGY.ipynb
-TB_BRONZE_RULINGS.ipynb
-TB_BRONZE_MIGRATIONS.ipynb
+cards.ipynb
+sets.ipynb
+card_prices.ipynb
+symbology.ipynb
+rulings.ipynb
+migrations.ipynb
 ```
 
 Não há ordem de dependência entre eles (cada um lê só sua própria origem na
