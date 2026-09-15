@@ -73,21 +73,16 @@ pipeline-databricks-magic_card_game/
 │   │
 │   ├── 📁 03 - Silver/             # 🥈 Camada Silver (Cleaned)
 │   │   ├── 📁 Dev/
-│   │   │   ├── TB_FATO_SILVER_CARDS.ipynb
-│   │   │   ├── TB_FATO_SILVER_CARDPRICES.ipynb
-│   │   │   ├── TB_REF_SILVER_SETS.ipynb
+│   │   │   ├── TB_FATO_CARTAS.ipynb
+│   │   │   ├── TB_DIM_COLECOES.ipynb
 │   │   │   ├── TB_REF_SILVER_FORMATS.ipynb
 │   │   │   ├── TB_REF_SILVER_TYPES.ipynb
 │   │   │   ├── TB_REF_SILVER_SUBTYPES.ipynb
 │   │   │   └── TB_REF_SILVER_SUPERTYPES.ipynb
 │   │   └── 📁 Documentação/
 │   │
-│   └── 📁 04 - Gold/               # 🥇 Camada Gold (Analytics)
-│       ├── 📁 Dev/
-│       │   ├── TB_ANALISE_TEMPORAL.ipynb
-│       │   ├── TB_ANALISE_MERCADO_CARTAS_EXECUTIVO.ipynb
-│       │   ├── TB_METRICAS_PERFORMANCE_INVESTIMENTOS.ipynb
-│       │   └── TB_REPORT_ALERTAS_EXECUTIVOS.ipynb
+│   └── 📁 04 - Gold/               # 🥇 Camada Gold (Analytics) - scripts em reconstrução
+│       ├── 📁 Dev/                 # (vazio - notebooks antigos removidos, apontavam pra colunas pré-#115/#116)
 │       └── 📁 Documentação/
 │
 ├── 📁 .github/
@@ -99,7 +94,7 @@ pipeline-databricks-magic_card_game/
 │       ├── stage.yml                # 📋 Job MTG_STAGE
 │       ├── bronze.yml               # 📋 Job MTG_BRONZE
 │       ├── pipeline.yml             # 📋 Job MTG_PIPELINE (orquestrador)
-│       └── magic.yml                # 📋 Job MTG_SILVER_GOLD
+│       └── silver_gold.yml          # 📋 Job MTG_SILVER_GOLD
 │
 └── 📄 README.md                    # 📖 Este arquivo
 ```
@@ -124,7 +119,9 @@ pipeline-databricks-magic_card_game/
 
 ### **3. Silver Layer**
 - **Função**: Limpeza e padronização
-- **Nomenclatura**: Prefixos padronizados (NME_, COD_, DESC_)
+- **Nomenclatura de coluna**: 100% PT-BR, sem acento, primeira letra maiúscula e resto minúsculo, com prefixo semântico padronizado (Id_, Nme_, Desc_, Cod_, Dt_, Qtd_, Vlr_, Num_, Url_) - sem uso de `( ) { }` no dado (sinalizaria transformação incompleta)
+- **Nomenclatura de tabela**: classificação DAMA-DMBOK (Fato/Dimensão) - ex.: `TB_FATO_CARTAS`, `TB_DIM_COLECOES`
+- **Chave única**: sinalizada na própria tabela via `COMMENT ON TABLE` e, quando a chave é NOT NULL, via constraint `PRIMARY KEY`
 - **Qualidade**: Validações e transformações
 
 ### **4. Gold Layer**

@@ -56,6 +56,9 @@ BRONZE_TABLES = {
             "originalText": "Texto de regras como impresso originalmente (antes de errata).",
             "originalType": "Linha de tipo original antes de reclassificações.",
             "legalities": "Legalidade da carta por formato de jogo.",
+            # issue #135 (AUD-20): capturado a partir desta ingestão - pode
+            # vir NULL em partições gravadas antes da mudança.
+            "oracle_id": "Oracle id da carta na Scryfall - estável entre impressões (printings) da mesma carta, ao contrário de id (que identifica só esta impressão). Usado na Silver para cruzar com migrations.metadata_oracle_id.",
         },
     },
     "sets": {

@@ -19,12 +19,12 @@ EXEMPLO DE USO NO NOTEBOOK:
 %run ./silver_utils
 
 config = create_manual_config("meu_catalog", "s3://meu-bucket")
-processor = SilverTableProcessor("TB_FATO_SILVER_CARDS", config)
+processor = SilverTableProcessor("TB_FATO_CARTAS", config)
 
-df_bronze = processor.extract_from_bronze("TB_BRONZE_CARDS")
+df_bronze = processor.extract_from_bronze("cards")
 df_silver = processor.transform_data(df_bronze, transform_function)
-processor.save_silver_table(df_silver, partition_cols=["RELEASE_YEAR", "RELEASE_MONTH"],
-                             key_column="ID_CARD", order_by_col="DT_INGESTION")
+processor.save_silver_table(df_silver, partition_cols=["Ano_ingestao_preco", "Mes_ingestao_preco"],
+                             key_column="Id_carta", order_by_col="Dt_ingestao")
 """
 
 from pyspark.sql.functions import col, hash, row_number
@@ -81,7 +81,7 @@ def create_manual_config(catalog_name, s3_bucket, s3_silver_prefix=None):
 
     Example:
         config = create_manual_config("meu_catalog", "s3://meu-bucket")
-        processor = SilverTableProcessor("TB_FATO_SILVER_CARDS", config)
+        processor = SilverTableProcessor("TB_FATO_CARTAS", config)
     """
     return {
         'catalog_name': catalog_name,
@@ -108,10 +108,106 @@ def extract_from_bronze(catalog, table_name_bronze):
     return df
 
 # ============================================================================
+# DOCUMENTAÇÃO NO UNITY CATALOG (mesmo padrão de bronze_utils.py)
+#
+# Duplicada de propósito em vez de extraída pra base_utils.py: função definida
+# num arquivo %run'd não fica visível como variável livre dentro de uma função
+# definida em OUTRO arquivo %run'd, mesmo com ambos mesclados no mesmo
+# notebook (achado real em Databricks, mesma causa do %run isolation citado
+# no topo deste arquivo) - extrair quebraria a chamada em runtime com
+# NameError. apply_table_documentation só pode viver junto de quem a chama.
+# ============================================================================
+def _escape_sql_string(value):
+    # Spark SQL não trata '' (dobrar aspas, convenção ANSI) como aspas literal
+    # dentro de um single-quoted string - fecha a string na 1a aspa e abre
+    # outra logo em seguida, virando ParseException. Backslash é o que o
+    # parser aceita (achado real ao rodar Bronze no Databricks).
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def apply_table_documentation(spark, full_table_name, table_comment=None, column_comments=None):
+    """Aplica COMMENT ON TABLE / ALTER COLUMN...COMMENT no Unity Catalog.
+
+    Metadados apenas (não reescreve dado) - seguro rodar em toda execução,
+    inclusive numa tabela já existente e comentada, pra manter em sincronia
+    com silver_column_docs.py sem precisar de uma migração separada. Colunas
+    em column_comments que ainda não existem na tabela são silenciosamente
+    ignoradas.
+    """
+    if table_comment:
+        spark.sql(f"COMMENT ON TABLE {full_table_name} IS '{_escape_sql_string(table_comment)}'")
+
+    if column_comments:
+        existing_columns = {f.name for f in spark.table(full_table_name).schema.fields}
+        for column_name, comment in column_comments.items():
+            if column_name in existing_columns:
+                spark.sql(
+                    f"ALTER TABLE {full_table_name} "
+                    f"ALTER COLUMN `{column_name}` COMMENT '{_escape_sql_string(comment)}'"
+                )
+
+
+def _declare_primary_key(spark_session, full_table_name, table_name, key_cols):
+    """Declara a PRIMARY KEY de key_cols em full_table_name no Unity Catalog.
+
+    Unity Catalog exige que toda coluna da PK esteja NOT NULL antes de aceitar
+    a constraint, mas NÃO enforca unicidade (PRIMARY KEY lá é informativa) -
+    então em vez de só tentar o ALTER COLUMN ... SET NOT NULL e reagir ao erro
+    genérico do engine, um único SELECT soma as linhas NULAS de cada coluna de
+    chave E conta linhas duplicadas pela chave completa de uma vez (1 scan da
+    tabela pra N colunas + duplicidade, em vez de N+1) - quando há violação, a
+    mensagem já vem com a contagem exata de linhas quebrando a premissa de
+    chave única, sem depender do texto de erro do Unity Catalog pra isso. Isso
+    não é um erro pra só avisar e seguir: propaga a exceção e derruba a run,
+    pra alguém corrigir a fonte/transformação antes da tabela ficar sem PK
+    documentada silenciosamente.
+
+    DROP+ADD constraint em vez de só ADD: idempotente entre execuções (ADD
+    CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    """
+    pk_name = f"pk_{table_name.lower()}"
+
+    null_sums = ", ".join(f"sum(case when `{k}` is null then 1 else 0 end) as `{k}`" for k in key_cols)
+    key_concat = "concat_ws('', " + ", ".join(f"cast(`{k}` as string)" for k in key_cols) + ")"
+    dup_count_expr = f"count(*) - count(distinct {key_concat}) as __dup_count"
+    row = spark_session.sql(
+        f"SELECT {null_sums}, {dup_count_expr} FROM {full_table_name}"
+    ).collect()[0]
+
+    for k in key_cols:
+        null_count = row[k] or 0
+        if null_count > 0:
+            raise RuntimeError(
+                f"Coluna chave '{k}' de {full_table_name} tem {null_count} linha(s) "
+                f"com valor NULO - viola a premissa de chave única desta tabela. "
+                f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
+            )
+
+    dup_count = row["__dup_count"] or 0
+    if dup_count > 0:
+        raise RuntimeError(
+            f"Chave ({', '.join(key_cols)}) de {full_table_name} tem {dup_count} "
+            f"linha(s) duplicada(s) - viola a premissa de chave única desta "
+            f"tabela (Unity Catalog não enforca unicidade de PRIMARY KEY). "
+            f"Corrija a fonte/transformação antes de declarar PRIMARY KEY."
+        )
+
+    for k in key_cols:
+        spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
+
+    spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
+    spark_session.sql(
+        f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
+        f"PRIMARY KEY ({', '.join(key_cols)})"
+    )
+
+
+# ============================================================================
 # FUNÇÃO DE CARREGAMENTO DELTA/UNITY CATALOG
 # ============================================================================
 def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
-                    partition_cols=None, key_column=None, order_by_col=None):
+                    partition_cols=None, key_column=None, order_by_col=None,
+                    table_comment=None, column_comments=None):
     """
     LOAD: grava df_final na camada Silver (Delta + Unity Catalog).
 
@@ -131,6 +227,10 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
             deterministicamente qual linha sobrevive quando o lote tem mais de uma
             linha para a mesma key_column (AUD-09). Sem ela, duplicatas de chave no
             lote são resolvidas de forma não-determinística, mas ficam logadas.
+        table_comment (str, optional): descrição de negócio da tabela (ver
+            silver_column_docs.py). Combinada com a sinalização de chave única.
+        column_comments (dict, optional): {nome_coluna: descrição de negócio}
+            (ver silver_column_docs.py).
     """
     if not s3_silver_path.startswith("s3://"):
         s3_silver_path = f"s3://{s3_silver_path}"
@@ -206,6 +306,24 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
     spark_session.sql(
         f"CREATE TABLE IF NOT EXISTS {full_table_name} USING DELTA LOCATION '{delta_path}'"
     )
+
+    # Comentário de tabela combina a descrição de negócio (table_comment, ver
+    # silver_column_docs.py) com a sinalização de chave única DENTRO da tabela
+    # (pedido do usuário) - quem abre o catalog vê sem precisar ler o notebook.
+    # apply_table_documentation cobre tabela + colunas (metadado, seguro rodar
+    # toda execução).
+    final_table_comment = table_comment
+    key_cols = None
+    if key_column:
+        key_cols = [key_column] if isinstance(key_column, str) else list(key_column)
+        key_note = f"Chave única: {', '.join(key_cols)}."
+        final_table_comment = f"{table_comment} {key_note}" if table_comment else key_note
+
+    apply_table_documentation(spark_session, full_table_name, final_table_comment, column_comments)
+
+    if key_cols:
+        _declare_primary_key(spark_session, full_table_name, table_name, key_cols)
+
     print("Dados salvos com sucesso na camada Silver!")
 
 # ============================================================================
@@ -232,7 +350,8 @@ class SilverTableProcessor:
             return transform_function(df, **kwargs)
         return df
 
-    def save_silver_table(self, df, partition_cols=None, key_column=None, order_by_col=None):
+    def save_silver_table(self, df, partition_cols=None, key_column=None, order_by_col=None,
+                           table_comment=None, column_comments=None):
         """Salva tabela na Silver com configurações padrão"""
         save_to_silver(
             df_final=df,
@@ -242,7 +361,9 @@ class SilverTableProcessor:
             s3_silver_path=self.s3_silver_path,
             partition_cols=partition_cols,
             key_column=key_column,
-            order_by_col=order_by_col
+            order_by_col=order_by_col,
+            table_comment=table_comment,
+            column_comments=column_comments
         )
 
         print(f"✅ {self.table_name} criada com sucesso!")
