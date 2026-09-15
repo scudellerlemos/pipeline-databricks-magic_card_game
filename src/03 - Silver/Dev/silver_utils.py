@@ -245,12 +245,7 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
     # silver_column_docs.py) com a sinalização de chave única DENTRO da tabela
     # (pedido do usuário) - quem abre o catalog vê sem precisar ler o notebook.
     # apply_table_documentation cobre tabela + colunas (metadado, seguro rodar
-    # toda execução). A constraint PRIMARY KEY é tentada best-effort à parte -
-    # Unity Catalog exige colunas NOT NULL numa PK, e algumas key_column aqui
-    # incluem coluna que pode ser NULA por desenho (ex.: data de ingestão de
-    # preço quando a carta não tem preço encontrado), o que faria a constraint
-    # falhar. DROP+ADD em vez de só ADD: idempotente entre execuções (ADD
-    # CONSTRAINT sem IF NOT EXISTS falharia na 2ª run).
+    # toda execução).
     final_table_comment = table_comment
     key_cols = None
     if key_column:
@@ -260,17 +255,31 @@ def save_to_silver(df_final, catalog, schema, table_name, s3_silver_path,
 
     apply_table_documentation(spark_session, full_table_name, final_table_comment, column_comments)
 
+    # PRIMARY KEY: Unity Catalog exige que toda coluna da PK esteja marcada
+    # NOT NULL - então cada key_col precisa de SET NOT NULL primeiro. Se isso
+    # falhar, é porque a coluna tem NULO de verdade na tabela - ou seja, a
+    # premissa "esta coluna é a chave única" está quebrada por um dado real,
+    # não é um erro pra só avisar e seguir: propaga a exceção e derruba a run,
+    # pra alguém corrigir a fonte/transformação antes da tabela ficar sem PK
+    # documentada silenciosamente. DROP+ADD constraint em vez de só ADD:
+    # idempotente entre execuções (ADD CONSTRAINT sem IF NOT EXISTS falharia
+    # na 2ª run).
     if key_cols:
-        try:
-            pk_name = f"pk_{table_name.lower()}"
-            spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
-            spark_session.sql(
-                f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
-                f"PRIMARY KEY ({', '.join(key_cols)})"
-            )
-        except Exception as e:
-            print(f"Aviso: não foi possível declarar PRIMARY KEY em {full_table_name} "
-                  f"(provável coluna de chave aceitando NULL) - {e}")
+        pk_name = f"pk_{table_name.lower()}"
+        for k in key_cols:
+            try:
+                spark_session.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{k}` SET NOT NULL")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Coluna chave '{k}' de {full_table_name} tem valor NULO - "
+                    f"viola a premissa de chave única desta tabela. Corrija a "
+                    f"fonte/transformação antes de declarar PRIMARY KEY."
+                ) from e
+        spark_session.sql(f"ALTER TABLE {full_table_name} DROP CONSTRAINT IF EXISTS {pk_name}")
+        spark_session.sql(
+            f"ALTER TABLE {full_table_name} ADD CONSTRAINT {pk_name} "
+            f"PRIMARY KEY ({', '.join(key_cols)})"
+        )
 
     print("Dados salvos com sucesso na camada Silver!")
 
