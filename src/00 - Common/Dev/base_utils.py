@@ -98,7 +98,7 @@ def get_secret(secret_name, default_value=None, extra_safe_defaults=None):
         # destino real de escrita/leitura de todas as camadas, então preferimos
         # falhar alto a gravar silenciosamente num bucket placeholder inexistente.
         safe_defaults = {
-            'catalog_name': 'magic_the_gathering'
+            'catalog_name': 'mtg_dev'
         }
         safe_defaults.update(extra_safe_defaults or {})
 

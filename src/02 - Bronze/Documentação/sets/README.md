@@ -35,4 +35,5 @@ Além das [colunas técnicas comuns](../README.md#colunas-técnicas-comuns):
 | `parent_set_code` | Código do set "pai", quando este é um sub-set (ex.: promos de um set principal). |
 | `block` | Bloco de expansão ao qual o set pertence. |
 | `icon_svg_uri` | URL do ícone SVG do set. |
+| `booster` | Campo legado da magicthegathering.io (lista de booster serializada) sem equivalente na Scryfall - sempre nulo desde a migração pra Scryfall, mantido só por imutabilidade de schema. Use `booster_0`…`booster_19` pro dado de booster atual. |
 | `booster_0` … `booster_19` | Slot N do pacote de booster deste set (tipo de carta possível nessa posição) - a fonte devolve `booster` como lista e a Stage explode cada posição em uma coluna. |

@@ -18,7 +18,7 @@ def test_explicit_default_wins():
 
 
 def test_falls_back_to_common_safe_default():
-    assert base_utils.get_secret("catalog_name") == "magic_the_gathering"
+    assert base_utils.get_secret("catalog_name") == "mtg_dev"
 
 
 def test_falls_back_to_layer_specific_default():

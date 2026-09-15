@@ -40,7 +40,7 @@ Transformar dados brutos da API do Magic: The Gathering em insights estratégico
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    🏛️ UNITY CATALOG                         │
-│              magic_the_gathering.{bronze|silver|gold}       │
+│              mtg_dev.{bronze|silver|gold}                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -15,7 +15,7 @@ Tabela Gold contendo métricas de performance e ROI para análise de investiment
 
 ## 3. Origem dos Dados
 - **Fonte:** TB_FATO_SILVER_CARDS, TB_FATO_SILVER_CARDPRICES (camada Silver)
-- **Arquivo de staging:** s3:/<bucket>/magic_the_gathering/gold/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
+- **Arquivo de staging:** s3:/<bucket>/mtg_dev/gold/TB_METRICAS_PERFORMANCE_INVESTIMENTOS
 
 ## 4. Linhagem dos Dados
 - **Fluxo:**  
@@ -101,7 +101,7 @@ Tabela Gold contendo métricas de performance e ROI para análise de investiment
 
 ## 10. Observações
 - Pipeline modularizado usando gold_utils.py
-- Configuração via Unity Catalog (magic_the_gathering.gold)
+- Configuração via Unity Catalog (mtg_dev.gold)
 - Arredondamento: 2 casas decimais para valores monetários, 4 para percentuais
 - Particionamento otimizado para consultas de performance
 - Categorizações automáticas para análise de risco
