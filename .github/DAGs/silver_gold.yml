@@ -51,10 +51,20 @@ resources:
         # ============================================================================
         # GOLD LAYER
         # ============================================================================
-        # Camada Gold removida pra reconstrução (scripts antigos apontavam pra
-        # colunas em ingles que nao existem mais na Silver pos-renomeacao
-        # DAMA/#115/#116) - tasks gold_* voltam aqui quando os notebooks forem
-        # reescritos contra o schema atual.
+        # depends_on só nas 4 tasks Silver que a Gold realmente le
+        # (TB_FATO_CARTAS, TB_DIM_COLECOES, TB_FATO_PRECOS_CARTAS,
+        # TB_FATO_ESCLARECIMENTOS_CARTAS) - silver_migracoes/silver_simbolos
+        # nao alimentam TB_GOLD_MERCADO_CARTAS (ver docstring do notebook).
+        - task_key: gold_mercado_cartas
+          depends_on:
+            - task_key: silver_cartas
+            - task_key: silver_colecao
+            - task_key: silver_precos
+            - task_key: silver_esclarecimentos
+          notebook_task:
+            notebook_path: src/04 - Gold/Dev/TB_GOLD_MERCADO_CARTAS
+            source: GIT
+          job_cluster_key: Job_cluster
 
       job_clusters:
         - job_cluster_key: Job_cluster
